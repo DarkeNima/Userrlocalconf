@@ -20,53 +20,69 @@ function aesEncrypt(data) {
     return Buffer.concat([cipher.update(data), cipher.final()]);
 }
 
+// DeepSeek කිව්ව විදිහට OB53 වලට ඕන කරන හැම field එකක්ම මෙතන තියෙනවා
 const protoDefinition = `
 syntax = "proto3";
 message LoginReq { string account_id = 1; string token = 2; }
 message LoginRes { 
     int32 result = 1; 
-    string account_id = 2; 
+    uint64 account_id = 2; 
     string token = 3; 
     string server_url = 4; 
     int64 timestamp = 5;
     string country_code = 6;
     int32 ban_status = 7;
+    string lock_region = 8;
+    string noti_region = 9;
+    string ip_region = 10;
+    string new_active_region = 11;
+    uint32 emulator_score = 12;
 }
 `;
 const root = protobuf.Root.fromJSON(protobuf.parse(protoDefinition).root);
 
 app.use(express.raw({ type: '*/*', limit: '2mb' }));
 
-// /Ping endpoint එක විතරක් handle කරනවා
 app.post('/Ping', async (req, res) => {
     console.log(`--- [Handshake] Received ${req.body.length} bytes ---`);
     const decrypted = aesDecrypt(req.body);
+
     if (decrypted) {
+        console.log("🔓 Decrypted Hex:", decrypted.toString('hex'));
         try {
             const LoginReq = root.lookupType('LoginReq');
             const reqMsg = LoginReq.decode(decrypted);
-            console.log('✅ Decoded Request:', reqMsg);
+            console.log('✅ Decoded Request:', JSON.stringify(reqMsg));
 
             const LoginRes = root.lookupType('LoginRes');
+            // DeepSeek ගේ උපදෙස් අනුව හැදූ Response එක
             const responsePayload = {
                 result: 0,
-                account_id: reqMsg.account_id || "1001",
-                token: reqMsg.token || "session_tkn",
+                account_id: 1001556, // ඔයාට ඕන UID එකක් මෙතනට දෙන්න
+                token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.Et9z_o9_S9K65_K0",
                 server_url: "http://139.162.54.41:10001",
                 timestamp: Math.floor(Date.now() / 1000),
                 country_code: "IN",
-                ban_status: 0
+                ban_status: 0,
+                lock_region: "IND",
+                noti_region: "IND",
+                ip_region: "IND",
+                new_active_region: "IND",
+                emulator_score: 0
             };
-            res.send(aesEncrypt(LoginRes.encode(responsePayload).finish()));
-            console.log("🚀 Login Response Sent!");
-        } catch (err) { console.log("❌ Protobuf Error"); }
+
+            const encoded = LoginRes.encode(responsePayload).finish();
+            res.send(aesEncrypt(encoded));
+            console.log("🚀 Login Response Sent Successfully!");
+        } catch (err) { 
+            console.log("❌ Protobuf Error:", err.message); 
+        }
     } else {
-        console.log("❌ Decryption Failed");
+        console.log("❌ Decryption Failed!");
     }
     res.end();
 });
 
-// අර Error එක එන පේළිය මෙන්න මේ විදිහට වෙනස් කළා:
 app.get('/', (req, res) => res.send("Lobby Server is Online"));
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Server started on ${PORT}`));
