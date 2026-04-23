@@ -21,25 +21,25 @@ function aesCbcDecrypt(encryptedData) {
     }
 }
 
+// /Ping handle කිරීමට
 app.post('/Ping', (req, res) => {
-    console.log(`[${new Date().toISOString()}] Ping!`);
+    console.log(`[${new Date().toISOString()}] Ping received!`);
     res.status(200).send("OK");
 });
 
-app.all('/*', (req, res) => {
-    console.log(`[${new Date().toISOString()}] Request: ${req.url}`);
+// අලුත් ක්‍රමයට ඕනෑම Request එකක් handle කිරීම (PathError එක නැති කිරීමට)
+app.all(/^(.*)$/, (req, res) => {
+    console.log(`[${new Date().toISOString()}] Request to: ${req.url}`);
     
     if (req.body && req.body.length > 0) {
         console.log(`Received ${req.body.length} bytes.`);
-        
-        // දත්ත කියවා බලමු
         const decrypted = aesCbcDecrypt(req.body);
+        
         if (decrypted) {
-            console.log("Decrypted Data (Hex):", decrypted.toString('hex').substring(0, 50) + "...");
-            
-            // දැනට "Success" එකක් විදිහට echo කරමු
+            console.log("✅ Decrypted Data (Hex):", decrypted.toString('hex').substring(0, 100));
+            // ගේම් එකට ලැබුණු දත්තම ආපහු යවමු (Echo)
             res.setHeader('Content-Type', 'application/octet-stream');
-            res.send(req.body); 
+            res.send(req.body);
         } else {
             res.status(400).send("Decryption Error");
         }
@@ -49,5 +49,5 @@ app.all('/*', (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Lobby Server with Decryption on port ${PORT}`);
+    console.log(`Lobby Server running on port ${PORT}`);
 });
