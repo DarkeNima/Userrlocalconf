@@ -4,17 +4,13 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     
     const responseData = {
-      "abhotupdate_cdn_url": "",
-      "abhotupdate_check": "",
-      "appstore_url": "http://www.freefiremobile.com/",
-      "cdn_url": "http://139.162.54.41/", 
-      "client_ip": "139.162.54.41",
-      "code": 2,
+      "code": 0, // DeepSeek කිව්වා වගේ 0 කරා
       "is_server_open": true,
-      "latest_release_version": "1.103.1",
-      "remote_version": "1.103.1",
-      // මෙන්න මේ පෝට් එක (10001) අනිවාර්යයෙන්ම තියෙන්න ඕනේ:
+      "latest_release_version": "1.104.1", 
+      "remote_version": "1.104.1",
       "server_url": "http://139.162.54.41:10001/", 
+      "cdn_url": "http://139.162.54.41/",
+      "client_ip": "139.162.54.41",
       "ggp_url": "139.162.54.41:10001",
       "country_code": "IN",
       "is_firewall_open": false,
@@ -26,6 +22,6 @@ const server = http.createServer((req, res) => {
 });
 
 const PORT = 80;
-server.listen(PORT, () => {
-    console.log(`Version API is running on port ${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Version API running on port ${PORT}`);
 });
