@@ -1,30 +1,25 @@
-const net = require('net');
+const express = require('express');
+const app = express();
+const PORT = 10001;
 
-const LOBBY_PORT = 10001; // Free Fire's default lobby port
+// ගේම් එකෙන් එවන දත්ත කියවීමට
+app.use(express.urlencoded({ extended: true }));
+app.use(express.raw({ type: '*/*' }));
 
-const server = net.createServer((socket) => {
-    console.log(`[${new Date().toISOString()}] Client connected from ${socket.remoteAddress}:${socket.remotePort}`);
-
-    socket.on('data', (data) => {
-        console.log(`[${new Date().toISOString()}] Received ${data.length} bytes: ${data.toString('hex')}`);
-
-        // Echo the data back to the client
-        socket.write(data);
-    });
-
-    socket.on('error', (err) => {
-        console.error(`Socket error: ${err.message}`);
-    });
-
-    socket.on('close', () => {
-        console.log(`[${new Date().toISOString()}] Client disconnected`);
-    });
+// ලොබී එකේ Ping request එකට උත්තර දීම
+app.post('/Ping', (req, res) => {
+    console.log(`[${new Date().toISOString()}] Ping received from Game!`);
+    
+    // ගේම් එක බලාපොරොත්තු වන සරල සාර්ථක ප්‍රතිචාරය
+    res.status(200).send("OK");
 });
 
-server.listen(LOBBY_PORT, '0.0.0.0', () => {
-    console.log(`Lobby server listening on port ${LOBBY_PORT}`);
+// වෙනත් ඕනෑම Request එකක් ලොග් කරගන්න (Debug කිරීමට)
+app.all('*', (req, res) => {
+    console.log(`[${new Date().toISOString()}] Request to: ${req.url}`);
+    res.status(200).json({ status: "success" });
 });
 
-server.on('error', (err) => {
-    console.error(`Server error: ${err.message}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Lobby API listening on port ${PORT}`);
 });
