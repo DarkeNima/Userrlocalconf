@@ -20,7 +20,6 @@ function aesEncrypt(data) {
     return Buffer.concat([cipher.update(data), cipher.final()]);
 }
 
-// DeepSeek කිව්ව විදිහට OB53 වලට ඕන කරන හැම field එකක්ම මෙතන තියෙනවා
 const protoDefinition = `
 syntax = "proto3";
 message LoginReq { string account_id = 1; string token = 2; }
@@ -45,6 +44,10 @@ app.use(express.raw({ type: '*/*', limit: '2mb' }));
 
 app.post('/Ping', async (req, res) => {
     console.log(`--- [Handshake] Received ${req.body.length} bytes ---`);
+    
+    // මෙන්න මේ පේළිය වැදගත්! Decrypt කරන්න කලින් එවන දේ බලමු.
+    console.log(`📦 RAW Encrypted Hex: ${req.body.toString('hex')}`); 
+
     const decrypted = aesDecrypt(req.body);
 
     if (decrypted) {
@@ -55,10 +58,9 @@ app.post('/Ping', async (req, res) => {
             console.log('✅ Decoded Request:', JSON.stringify(reqMsg));
 
             const LoginRes = root.lookupType('LoginRes');
-            // DeepSeek ගේ උපදෙස් අනුව හැදූ Response එක
             const responsePayload = {
                 result: 0,
-                account_id: 1001556, // ඔයාට ඕන UID එකක් මෙතනට දෙන්න
+                account_id: 1001556, 
                 token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.Et9z_o9_S9K65_K0",
                 server_url: "http://139.162.54.41:10001",
                 timestamp: Math.floor(Date.now() / 1000),
@@ -78,7 +80,8 @@ app.post('/Ping', async (req, res) => {
             console.log("❌ Protobuf Error:", err.message); 
         }
     } else {
-        console.log("❌ Decryption Failed!");
+        // මේ පාර Decrypt නොවීමට හේතුව මෙතනින් බලාගන්න පුළුවන්
+        console.log("❌ Decryption Failed! The packet might be using a different Key or it's not AES.");
     }
     res.end();
 });
