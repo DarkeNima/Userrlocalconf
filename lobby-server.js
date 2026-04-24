@@ -24,7 +24,6 @@ message LoginRes {
     string new_active_region = 11;
     uint32 emulator_score = 12;
 }
-message CreateRoleReq { string nickname = 1; }
 message CreateRoleRes { int32 result = 1; }
 `;
 const root = protobuf.Root.fromJSON(protobuf.parse(protoDefinition).root);
@@ -40,17 +39,22 @@ app.post('/Ping', async (req, res) => {
     const fullData = req.body;
     console.log(`--- [Network Log] Received ${fullData.length} bytes ---`);
 
-    // 🚪 Gate 2: Handshake Probe (16-byte check)
+    // 🚪 Gate 2: Handshake Success Logic
     if (fullData.length === 16) {
-        console.log("🛠️ Gate 2 Handshake: Sending Encrypted Success Response...");
-        const successBuffer = Buffer.alloc(16, 0); // 00 00 00...
-        // මේකට static IV එකක් වෙනුවට එන දත්තම පාවිච්චි කරමු
-        const encryptedResponse = aesEncrypt(successBuffer, fullData); 
+        console.log("🛠️ Gate 2: Handshake Probe. Sending Official Header...");
+        
+        // OB53 වල සමහර වෙලාවට ගේම් එක බලාපොරොත්තු වෙන්නේ 
+        // ලැබුණු පැකට් එකේම පළමු bytes කිහිපය වෙනස් කරලා යවන එකයි.
+        const handshakeRes = Buffer.alloc(16, 0);
+        handshakeRes[0] = 0x0a; // Protobuf Tag
+        handshakeRes[1] = 0x0e; // Length
+        
+        const encryptedResponse = aesEncrypt(handshakeRes, fullData); 
         res.send(encryptedResponse);
         return;
     }
 
-    // 🚪 Gate 3 & Beyond: Data Handling
+    // 🚪 Gate 3: Login Handling with your UID
     if (fullData.length > 16) {
         const dynamicIV = fullData.subarray(0, 16);
         const encryptedPayload = fullData.subarray(16);
@@ -61,42 +65,26 @@ app.post('/Ping', async (req, res) => {
             
             console.log("🔓 Decrypted Hex:", decrypted.toString('hex'));
 
-            // 1. මේක LoginRequest එකක්ද බලමු
-            try {
-                const LoginReq = root.lookupType('LoginReq');
-                const reqMsg = LoginReq.decode(decrypted);
-                
-                if (reqMsg.account_id) {
-                    console.log('✅ Auth Request Received:', JSON.stringify(reqMsg));
-                    const LoginRes = root.lookupType('LoginRes');
-                    const responsePayload = {
-                        result: 0,
-                        account_id: 1001556, // ඔයාගේ UID එක මෙතනට දාන්න
-                        token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.Et9z_o9_S9K65_K0",
-                        server_url: "http://139.162.54.41:10001",
-                        timestamp: Math.floor(Date.now() / 1000),
-                        country_code: "IN",
-                        ban_status: 0,
-                        lock_region: "IND",
-                        noti_region: "IND",
-                        ip_region: "IND",
-                        new_active_region: "IND",
-                        emulator_score: 0
-                    };
-                    const encoded = LoginRes.encode(responsePayload).finish();
-                    res.send(Buffer.concat([dynamicIV, aesEncrypt(encoded, dynamicIV)]));
-                    console.log("🚀 Login Response Sent!");
-                    return;
-                }
-            } catch(e) {}
+            // Login Response එක හදමු ඔයාගේ UID එකත් එක්ක
+            const LoginRes = root.lookupType('LoginRes');
+            const responsePayload = {
+                result: 0,
+                account_id: "13989823065", // ඔයාගේ ඇත්තම UID එක මෙන්න මෙතනට දැම්මා
+                token: "ST-83294-random-token-v3-deepseek",
+                server_url: "http://139.162.54.41:10001",
+                timestamp: Math.floor(Date.now() / 1000),
+                country_code: "IN",
+                ban_status: 0,
+                lock_region: "IND",
+                noti_region: "IND",
+                ip_region: "IND",
+                new_active_region: "IND",
+                emulator_score: 0
+            };
 
-            // 2. මේක CreateRole එකක්ද (නම දාන එක) බලමු
-            try {
-                const CreateRoleRes = root.lookupType('CreateRoleRes');
-                const encoded = CreateRoleRes.encode({ result: 0 }).finish();
-                res.send(Buffer.concat([dynamicIV, aesEncrypt(encoded, dynamicIV)]));
-                console.log("🚀 CreateRole Success Sent!");
-            } catch(e) {}
+            const encoded = LoginRes.encode(responsePayload).finish();
+            res.send(Buffer.concat([dynamicIV, aesEncrypt(encoded, dynamicIV)]));
+            console.log("🚀 Login Success Sent for UID: 13989823065");
 
         } catch (err) {
             console.log("❌ Data Error:", err.message);
@@ -105,4 +93,4 @@ app.post('/Ping', async (req, res) => {
     res.end();
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server listening on ${PORT}`));
