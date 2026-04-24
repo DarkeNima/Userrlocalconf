@@ -13,20 +13,21 @@ const server = http.createServer((req, res) => {
         
         // DeepSeek දුන්න Official OB53 Structure එක
         const responseData = {
-            "code": 2,
-            "is_server_open": true,
-            "latest_release_version": "1.123.8",
-            "remote_version": "1.123.8",
-            "force_update": 0, // Update එක නවත්තන ප්‍රධාන switch එක
-            "enable_patch": 1,
-            "patchnote_url": "http://139.162.54.41/notice",
-            "billboard_msg": "",
-            "maintain_msg": "",
-            "server_url": "http://139.162.54.41:10001",
-            "ggp_url": "139.162.54.41:10001",
-            "cdn_url": "http://139.162.54.41/cdn",
-            "country_code": "SG"
-        };
+    "code": 2, // OB53 සාර්ථකයි කියලා කියන්න
+    "is_server_open": true,
+    "latest_release_version": "1.123.8",
+    "remote_version": "1.123.8",
+    "force_update": 0, // අනිවාර්යයෙන්ම 0 වෙන්න ඕනේ
+    "enable_patch": 1,
+    "patchnote_url": "https://split-venice-nil-northern.trycloudflare.com/notice",
+    "server_url": "http://139.162.54.41:10001", // Lobby එකට IP එකම තියන්න
+    "ggp_url": "139.162.54.41:10001",
+    "cdn_url": "https://split-venice-nil-northern.trycloudflare.com/cdn",
+    "md5": "7e94677df24a33519a49c4cfc85edf41", // Official පෙනුමක් දෙන්න
+    "pkg_md5": "99f1b4b2b23b52e79d16c93a851d1b35",
+    "country_code": "SG"
+};
+
 
         res.end(JSON.stringify(responseData));
     } else {
