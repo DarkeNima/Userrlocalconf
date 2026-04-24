@@ -4,21 +4,19 @@ const app = express();
 
 app.use(compression());
 
-// හැම Request එකක්ම ලොග් කරලා, ගේම් එකට 200 OK යවන Wildcard Middleware එකක්
 app.use((req, res, next) => {
     console.log(`[${new Date().toLocaleString()}] Request: ${req.method} ${req.path}`);
     next();
 });
 
 app.get('/ver.php', (req, res) => {
-    // Client එක ඉල්ලපු 1.123.8 වර්ෂන් එකම දෙමු, එතකොට අප්ඩේට් ඉල්ලන්නේ නැහැ
     const data = {
         "code": 2,
         "is_server_open": true,
         "latest_release_version": "1.123.8", 
         "remote_version": "1.123.8",
         "force_update": 0,
-        "enable_patch": 0, // 🔴 මේක 0 කරාම ගේම් එක CDN Check කරන්නේ නැහැ!
+        "enable_patch": 0, 
         "patchnote_url": "https://purpose-articles-clocks-warm.trycloudflare.com/notice",
         "server_url": "http://139.162.54.41:10001",
         "ggp_url": "139.162.54.41:10001",
@@ -42,8 +40,8 @@ app.get('/ver.php', (req, res) => {
     res.status(200).send(minifiedJson);
 });
 
-// "/", "/favicon.ico", "/cdn", හෝ වෙන ඕනෑම එකකට Error නොදී OK යවමු
-app.all('*', (req, res) => {
+// 🔴 Error එක හදපු තැන: '*' වෙනුවට '/*' දැම්මා
+app.all('/*', (req, res) => {
     res.status(200).send("OK");
 });
 
