@@ -1,48 +1,94 @@
 const express = require('express');
 const app = express();
 
+// --- CONFIGURATION ---
+const MY_URL = "https://packing-rolling-declare-suites.trycloudflare.com"; 
+const MY_IP = "139.162.54.41";
+const PORT = 80;
+
 app.disable('etag');
 app.disable('x-powered-by');
 
 app.get('/ver.php', (req, res) => {
-    console.log(`[VER] Request from: ${req.ip}`);
+    console.log(`[VER] Request received from: ${req.ip}`);
 
-    const responseObj = {
-        "code": 0, // ✅ ChatGPT ගේ උපදෙස: මේක අනිවාර්යයෙන් 0 වෙන්න ඕනේ
+    const responseData = {
+        "code": 0,
         "is_server_open": true,
-        "latest_release_version": "1.123.8",
+        "is_firewall_open": false,
+        "cdn_url": "https://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
+        "backup_cdn_url": "https://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
+        "abhotupdate_cdn_url": "https://dl-core.cdn.freefiremobile.com/live/ABHotUpdates/",
+        "img_cdn_url": "https://dl.cdn.freefiremobile.com/common/",
+        "login_download_optionalpack": "optionalclothres:shaders|optionalpetres:optionalpetres_commonab_shader|optionallobbyres:",
+        "need_track_hotupdate": true,
+        "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
+        "latest_release_version": "OB53",
+        "min_hint_size": 1,
+        "space_required_in_GB": 1.48,
+        "should_check_ab_load": false,
+        "force_refresh_restype": "optionalavatarres",
         "remote_version": "1.123.8",
-        "force_update": 0,
-        "enable_patch": 0, 
-        "patchnote_url": "https://purpose-articles-clocks-warm.trycloudflare.com/notice",
-        "server_url": "https://purpose-articles-clocks-warm.trycloudflare.com/lobby", // ✅ HTTPS only
-        "cdn_url": "https://purpose-articles-clocks-warm.trycloudflare.com/cdn",
-        "md5": "7e94677df24a33519a49c4cfc85edf41",
-        "pkg_md5": "99f1b4b2b23b52e79d16c93a851d1b35",
-        "country_code": "SG"
+        "server_url": `${MY_URL}/`, // ✅ ඔයාගේ අලුත් HTTPS Cloudflare URL එක
+        "is_review_server": false,
+        "use_login_optional_download": true,
+        "use_background_download": false,
+        "use_background_download_lobby": false,
+        "country_code": "SG",
+        "client_ip": req.ip.replace('::ffff:', ''),
+        "gdpr_version": 0,
+        "billboard_cdn_url": "https://dl.dir.freefiremobile.com/common/OB53/CSH/patchupdate/sghfuHFHf101.ff_extend",
+        "billboard_msg": "",
+        "web_url": "",
+        "billboard_bg_url": "https://dl.cdn.freefiremobile.com/common/OB23/version/Patch_Bg.png",
+        "max_store": "",
+        "max_web": "",
+        "max_video": "",
+        "patchnote_url": "https://dl.dir.freefiremobile.com/common/web_event/aswqooiwd/EnlyjW26.html?lang=en",
+        "multi_region": "",
+        "need_check_ip_list": [],
+        "network_log_server": "https://sgnetwork.ggblueshark.com/",
+        "web_log_server": "https://networkselftest.ff.garena.com/api/",
+        "login_failed_count": 2,
+        "test_url": "",
+        "core_url": "csoversea.castle.freefiremobile.com",
+        "core_ip_list": [MY_IP, "0.0.0.0"], 
+        "appstore_url": "http://www.freefiremobile.com/",
+        "backup_appstore_url": "",
+        "garena_login": false,
+        "garena_hint": false,
+        "gop_url": "",
+        "gamevar": "var_name,comment,var_type,var_value\nANODisabledRegions,string,\"IND,NA\"\n",
+        "device_whitelist_version": "1.5.0",
+        "whitelist_mask": 0,
+        "device_whitelist_sp_version": "1.0.0",
+        "whitelist_sp_mask": 0,
+        "ggp_url": "gin.freefiremobile.com",
+        "remote_option_version": "optionallocres:49|optionalavatarres:757|optionalclothres:1184|optionalpetres:871", 
+        "remote_option_version_astc": "optionallocres:49|optionalavatarres:719|optionalclothres:1184|optionalpetres:871"
     };
 
-    const jsonString = JSON.stringify(responseObj);
+    // Astutech එකේ වගේම slash escape කරලා minify කරනවා
+    const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
 
-    // ✅ DeepSeek + ChatGPT Strict Headers
     res.set({
         'Content-Type': 'application/json; charset=utf-8',
-        'Content-Length': Buffer.byteLength(jsonString, 'utf8'),
-        'Content-Encoding': 'identity',
+        'Content-Length': Buffer.byteLength(jsonResponse, 'utf8'),
         'Connection': 'keep-alive',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Server': 'Garena/FreeFire'
+        'Cache-Control': 'public, max-age=30',
+        'Server': 'cloudflare',
+        'Access-Control-Allow-Origin': '*'
     });
 
-    res.status(200).send(jsonString);
-    console.log(`[VER] Sent response with code: 0`);
+    res.status(200).send(jsonResponse);
+    console.log(`[VER] Sent Astutech-style response with code 0`);
 });
 
-// අතුරු ලින්ක් ටිකත් ඕන වෙයි
+// අතුරු ලින්ක්
 app.all('/notice', (req, res) => res.status(200).send("OK"));
-app.all('/cdn', (req, res) => res.status(200).send("OK"));
-app.all('/lobby', (req, res) => res.status(200).send("OK"));
+app.all('/cdn/*', (req, res) => res.status(200).send("OK"));
 
-app.listen(80, '0.0.0.0', () => {
-    console.log("🚀 ALL AI COMBINED ENGINE - Running on Port 80");
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
+    console.log(`🔗 TUNNEL URL: ${MY_URL}`);
 });
