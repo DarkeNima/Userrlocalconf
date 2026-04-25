@@ -1,7 +1,6 @@
 const express = require('express');
 const app = express();
 
-// --- CONFIGURATION ---
 const MY_URL = "https://packing-rolling-declare-suites.trycloudflare.com"; 
 const MY_IP = "139.162.54.41";
 const PORT = 80;
@@ -10,7 +9,7 @@ app.disable('etag');
 app.disable('x-powered-by');
 
 app.get('/ver.php', (req, res) => {
-    console.log(`[VER] Request received from: ${req.ip}`);
+    console.log(`[VER] Request from: ${req.ip}`);
 
     const responseData = {
         "code": 0,
@@ -72,23 +71,19 @@ app.get('/ver.php', (req, res) => {
 
     res.set({
         'Content-Type': 'application/json; charset=utf-8',
-        'Content-Length': Buffer.byteLength(jsonResponse, 'utf8'),
-        'Connection': 'keep-alive',
-        'Cache-Control': 'public, max-age=30',
         'Server': 'cloudflare',
         'Access-Control-Allow-Origin': '*'
     });
 
     res.status(200).send(jsonResponse);
-    console.log(`[VER] Sent Corrected Astutech-style response`);
+    console.log(`[VER] Sent Corrected Response to ${req.ip}`);
 });
 
-// ✅ නිවැරදි කරන ලද Routes
+// ✅ Error-Free Routes
 app.all('/notice', (req, res) => res.status(200).send("OK"));
 app.use('/cdn', (req, res) => res.status(200).send("OK"));
 app.use('/common', (req, res) => res.status(200).send("OK"));
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
-    console.log(`🔗 TUNNEL URL: ${MY_URL}`);
+    console.log(`🚀 API SERVER RUNNING ON PORT ${PORT}`);
 });
