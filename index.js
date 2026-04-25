@@ -81,14 +81,18 @@ app.get('/ver.php', (req, res) => {
 });
 
 // ✅ පාරවල් අල්ලගන්න කොටස (මෙතනින් තමයි Nickname එක ගහද්දී වදින පාර අහු වෙන්නේ)
-app.all('*', (req, res) => {
+// මේක පරණ app.all('*') එක වෙනුවට දාන්න
+app.use((req, res, next) => {
     console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
-    if (Object.keys(req.body).length > 0) {
+    
+    // Request body එක තියෙනවා නම් ඒකත් බලමු
+    if (req.body && Object.keys(req.body).length > 0) {
         console.log(`📦 Body:`, JSON.stringify(req.body));
     }
-    res.status(200).send("OK");
-});
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 API SERVER RUNNING ON PORT ${PORT}`);
+    // ver.php එකට නෙවෙයි නම් එන්නේ, අපි "OK" යවමු
+    if (req.path !== '/ver.php') {
+        return res.status(200).send("OK");
+    }
+    next();
 });
