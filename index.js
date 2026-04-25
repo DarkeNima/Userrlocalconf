@@ -5,6 +5,7 @@ const MY_URL = "https://packing-rolling-declare-suites.trycloudflare.com";
 const MY_IP = "139.162.54.41";
 const PORT = 80;
 
+app.use(express.json()); // JSON දත්ත කියවන්න මේක ඕනේ
 app.disable('etag');
 app.disable('x-powered-by');
 
@@ -57,7 +58,7 @@ app.get('/ver.php', (req, res) => {
         "garena_login": false,
         "garena_hint": false,
         "gop_url": "",
-        "gamevar": "var_name,comment,var_type,var_value\nANODisabledRegions,string,\"IND,NA\"\n",
+        "gamevar": "var_name,comment,var_type,var_value\nANODisabledRegions,string,\"IND,NA\"\nANODisabledClientVariant,string,\"ClientUsingVersion_MAX_HPE,ClientUsingVersion_FFI,ClientUsingVersion_MAX|IND,ClientUsingVersion_MAX|NA,ClientUsingVersion_NORMAL|NA\"\nEnableMtpLiteDataRegion,string,\"BR,EUROPE,ID,ME,US,RU,SAC,SG,TH,TW,VN,PK,ZA,BD\"\n",
         "device_whitelist_version": "1.5.0",
         "whitelist_mask": 0,
         "device_whitelist_sp_version": "1.0.0",
@@ -76,13 +77,17 @@ app.get('/ver.php', (req, res) => {
     });
 
     res.status(200).send(jsonResponse);
-    console.log(`[VER] Sent Corrected Response to ${req.ip}`);
+    console.log(`[VER] Sent Response to ${req.ip}`);
 });
 
-// ✅ Error-Free Routes
-app.all('/notice', (req, res) => res.status(200).send("OK"));
-app.use('/cdn', (req, res) => res.status(200).send("OK"));
-app.use('/common', (req, res) => res.status(200).send("OK"));
+// ✅ පාරවල් අල්ලගන්න කොටස (මෙතනින් තමයි Nickname එක ගහද්දී වදින පාර අහු වෙන්නේ)
+app.all('*', (req, res) => {
+    console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
+    if (Object.keys(req.body).length > 0) {
+        console.log(`📦 Body:`, JSON.stringify(req.body));
+    }
+    res.status(200).send("OK");
+});
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 API SERVER RUNNING ON PORT ${PORT}`);
