@@ -29,7 +29,7 @@ app.get('/ver.php', (req, res) => {
         "should_check_ab_load": false,
         "force_refresh_restype": "optionalavatarres",
         "remote_version": "1.123.8",
-        "server_url": `${MY_URL}/`, // ✅ ඔයාගේ අලුත් HTTPS Cloudflare URL එක
+        "server_url": `${MY_URL}/`, 
         "is_review_server": false,
         "use_login_optional_download": true,
         "use_background_download": false,
@@ -68,7 +68,7 @@ app.get('/ver.php', (req, res) => {
         "remote_option_version_astc": "optionallocres:49|optionalavatarres:719|optionalclothres:1184|optionalpetres:871"
     };
 
-    // Astutech එකේ වගේම slash escape කරලා minify කරනවා
+    // Slash escape කිරීම
     const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
 
     res.set({
@@ -81,12 +81,13 @@ app.get('/ver.php', (req, res) => {
     });
 
     res.status(200).send(jsonResponse);
-    console.log(`[VER] Sent Astutech-style response with code 0`);
+    console.log(`[VER] Sent Corrected Astutech-style response`);
 });
 
-// අතුරු ලින්ක්
+// ✅ අලුත් Express Versions සඳහා නිවැරදි කරන ලද Wildcard Routes
 app.all('/notice', (req, res) => res.status(200).send("OK"));
-app.all('/cdn/*', (req, res) => res.status(200).send("OK"));
+app.all('/cdn/(.*)', (req, res) => res.status(200).send("OK"));
+app.all('/common/(.*)', (req, res) => res.status(200).send("OK"));
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
