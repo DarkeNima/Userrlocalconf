@@ -68,7 +68,6 @@ app.get('/ver.php', (req, res) => {
         "remote_option_version_astc": "optionallocres:49|optionalavatarres:719|optionalclothres:1184|optionalpetres:871"
     };
 
-    // Slash escape කිරීම
     const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
 
     res.set({
@@ -84,10 +83,10 @@ app.get('/ver.php', (req, res) => {
     console.log(`[VER] Sent Corrected Astutech-style response`);
 });
 
-// ✅ අලුත් Express Versions සඳහා නිවැරදි කරන ලද Wildcard Routes
+// ✅ නිවැරදි කරන ලද Routes
 app.all('/notice', (req, res) => res.status(200).send("OK"));
-app.all('/cdn/(.*)', (req, res) => res.status(200).send("OK"));
-app.all('/common/(.*)', (req, res) => res.status(200).send("OK"));
+app.use('/cdn', (req, res) => res.status(200).send("OK"));
+app.use('/common', (req, res) => res.status(200).send("OK"));
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
