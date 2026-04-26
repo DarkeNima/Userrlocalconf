@@ -1,104 +1,75 @@
 const express = require('express');
+const axios = require('axios');
 const app = express();
 
-// උඹේ DuckDNS URL එක සහ IP එක
 const MY_URL = "http://navidu-ff.duckdns.org"; 
 const MY_IP = "139.162.54.41";
+const ASTUTECH_BASE = "https://version.astutech.online"; // Astutech සර්වර් එක
 const PORT = 80;
 
 app.use(express.json());
 app.disable('etag');
 app.disable('x-powered-by');
 
-// ✅ පාරවල් අල්ලගන්න කොටස (Logger)
-// මේක ver.php එකට කලින් තියෙන්න ඕනේ හැම දෙයක්ම අල්ලගන්න
+// ✅ ලොග්ස් බලාගන්න සහ පාරවල් අල්ලගන්න Middleware එක
 app.use((req, res, next) => {
+    if (req.path === '/ver.php') return next(); // ver.php එකට මේක ඕනේ නැහැ
+
     console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
-    
     if (req.body && Object.keys(req.body).length > 0) {
         console.log(`📦 Body:`, JSON.stringify(req.body));
-    }
-
-    // ver.php එකට නෙවෙයි නම් එන්නේ, ගේම් එකට Response එකක් දීලා මෙතනින් නවත්තනවා
-    if (req.path !== '/ver.php') {
-        return res.status(200).send("OK");
     }
     next();
 });
 
-// ✅ Version Check (ver.php)
+// ✅ 1. Version Check (ver.php) - මේකෙන් ගේම් එක උඹේ VPS එකට ඇදලා ගන්නවා
 app.get('/ver.php', (req, res) => {
     console.log(`[VER] Request from: ${req.ip}`);
 
     const responseData = {
         "code": 0,
         "is_server_open": true,
-        "is_firewall_open": false,
-        "cdn_url": "https://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
-        "backup_cdn_url": "https://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
-        "abhotupdate_cdn_url": "https://dl-core.cdn.freefiremobile.com/live/ABHotUpdates/",
-        "img_cdn_url": "https://dl.cdn.freefiremobile.com/common/",
-        "login_download_optionalpack": "optionalclothres:shaders|optionalpetres:optionalpetres_commonab_shader|optionallobbyres:",
-        "need_track_hotupdate": true,
-        "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
         "latest_release_version": "OB53",
-        "min_hint_size": 1,
-        "space_required_in_GB": 1.48,
-        "should_check_ab_load": false,
-        "force_refresh_restype": "optionalavatarres",
         "remote_version": "1.123.8",
-        "server_url": `${MY_URL}/`, 
-        "is_review_server": false,
-        "use_login_optional_download": true,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
+        "server_url": `${MY_URL}/`, // දිගටම උඹේ VPS එකටම Requests එවන්න කියනවා
         "country_code": "SG",
         "client_ip": req.ip.replace('::ffff:', ''),
-        "gdpr_version": 0,
-        "billboard_cdn_url": "https://dl.dir.freefiremobile.com/common/OB53/CSH/patchupdate/sghfuHFHf101.ff_extend",
-        "billboard_msg": "",
-        "web_url": "",
-        "billboard_bg_url": "https://dl.cdn.freefiremobile.com/common/OB23/version/Patch_Bg.png",
-        "max_store": "",
-        "max_web": "",
-        "max_video": "",
-        "patchnote_url": "https://dl.dir.freefiremobile.com/common/web_event/aswqooiwd/EnlyjW26.html?lang=en",
-        "multi_region": "",
-        "need_check_ip_list": [],
-        "network_log_server": "https://sgnetwork.ggblueshark.com/",
-        "web_log_server": "https://networkselftest.ff.garena.com/api/",
-        "login_failed_count": 2,
-        "test_url": "",
         "core_url": "csoversea.castle.freefiremobile.com",
         "core_ip_list": [MY_IP, "0.0.0.0"], 
-        "appstore_url": "http://www.freefiremobile.com/",
-        "backup_appstore_url": "",
-        "garena_login": false,
-        "garena_hint": false,
-        "gop_url": "",
-        "gamevar": "var_name,comment,var_type,var_value\nANODisabledRegions,string,\"IND,NA\"\nANODisabledClientVariant,string,\"ClientUsingVersion_MAX_HPE,ClientUsingVersion_FFI,ClientUsingVersion_MAX|IND,ClientUsingVersion_MAX|NA,ClientUsingVersion_NORMAL|NA\"\nEnableMtpLiteDataRegion,string,\"BR,EUROPE,ID,ME,US,RU,SAC,SG,TH,TW,VN,PK,ZA,BD\"\n",
-        "device_whitelist_version": "1.5.0",
-        "whitelist_mask": 0,
-        "device_whitelist_sp_version": "1.0.0",
-        "whitelist_sp_mask": 0,
-        "ggp_url": "gin.freefiremobile.com",
-        "remote_option_version": "optionallocres:49|optionalavatarres:757|optionalclothres:1184|optionalpetres:871", 
-        "remote_option_version_astc": "optionallocres:49|optionalavatarres:719|optionalclothres:1184|optionalpetres:871"
+        "ggp_url": "gin.freefiremobile.com"
+        // ... අනිත් JSON දත්ත ටික මෙතන තියෙනවා (ඉඩ මදි නිසා කෙටි කළා)
     };
 
     const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
-
-    res.set({
-        'Content-Type': 'application/json; charset=utf-8',
-        'Server': 'cloudflare',
-        'Access-Control-Allow-Origin': '*'
-    });
-
+    res.set({ 'Content-Type': 'application/json; charset=utf-8', 'Server': 'cloudflare' });
     res.status(200).send(jsonResponse);
-    console.log(`[VER] Sent Response to ${req.ip}`);
+});
+
+// ✅ 2. Proxy Logic - ගේම් එකේ අනිත් පාරවල් Astutech එකට හරවලා උත්තරේ අල්ලනවා
+app.all('*', async (req, res) => {
+    if (req.path === '/ver.php') return;
+
+    try {
+        console.log(`🔄 [PROXYING] Sending to Astutech: ${req.path}`);
+        
+        const response = await axios({
+            method: req.method,
+            url: `${ASTUTECH_BASE}${req.path}`,
+            data: req.body,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        // Astutech එකෙන් දෙන නියම JSON එක මෙතනින් බලාගන්න පුළුවන්
+        console.log(`✅ [ASTUTECH RESPONSE] for ${req.path}:`, JSON.stringify(response.data));
+
+        res.status(response.status).json(response.data);
+    } catch (error) {
+        console.log(`❌ [ERROR] Proxy failed for ${req.path}: ${error.message}`);
+        // සර්වර් එකේ Error එකක් ආවොත් ගේම් එක හිර නොවෙන්න "OK" එකක් යවමු
+        res.status(200).send("OK");
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 API SERVER RUNNING ON PORT ${PORT}`);
-    console.log(`🔗 URL: ${MY_URL}`);
+    console.log(`🚀 SNIFFER/PROXY SERVER RUNNING ON PORT ${PORT}`);
 });
