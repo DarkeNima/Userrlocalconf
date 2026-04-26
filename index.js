@@ -3,13 +3,11 @@ const axios = require('axios');
 const app = express();
 
 const MY_URL = "http://navidu-ff.duckdns.org"; 
-const MY_IP = "139.162.54.41";
 const ASTUTECH_BASE = "https://version.astutech.online";
 const PORT = 80;
 
 app.use(express.json());
 
-// ✅ 1. Astutech ලගේ Original JSON එක (මේක නැතිව ලෝඩ් වෙන්නේ නැහැ)
 const astuteData = {
     "code": 0,
     "is_server_open": true,
@@ -44,42 +42,38 @@ const astuteData = {
     "ggp_url": "gin.freefiremobile.com"
 };
 
-// ✅ 2. ver.php Route
 app.get('/ver.php', (req, res) => {
-    console.log(`[VER] Sending Cloned Data to: ${req.ip}`);
-    const jsonResponse = JSON.stringify(astuteData).replace(/\//g, '\\/');
+    console.log(`[${new Date().toISOString()}] 📡 VER Request from: ${req.ip}`);
     res.set({ 'Content-Type': 'application/json; charset=utf-8' });
-    res.status(200).send(jsonResponse);
+    res.status(200).send(JSON.stringify(astuteData).replace(/\//g, '\\/'));
 });
 
-// ✅ 3. Proxy Middleware (Regex නැතුව ලේසි ක්‍රමයට)
 app.use(async (req, res, next) => {
     if (req.path === '/ver.php') return next();
-
     console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
-    
-    let cleanPath = req.path;
-    if (cleanPath.startsWith('//')) cleanPath = cleanPath.substring(1);
     
     try {
         const response = await axios({
             method: req.method,
-            url: `${ASTUTECH_BASE}${cleanPath}`,
+            url: `${ASTUTECH_BASE}${req.path}`,
             data: req.body,
-            headers: { 
-                ...req.headers, 
-                'host': 'version.astutech.online' 
-            }
+            headers: { ...req.headers, 'host': 'version.astutech.online' },
+            timeout: 5000 
         });
-
-        console.log(`✅ [ASTUTECH]:`, JSON.stringify(response.data));
+        console.log(`✅ [ASTUTECH]: Success`);
         res.status(response.status).json(response.data);
     } catch (error) {
-        console.log(`❌ [FAILED]: ${error.message}`);
+        console.log(`❌ [PROXY FAILED]: ${req.path} - ${error.message}`);
         res.status(200).send("OK");
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 FINAL FIX LIVE ON PORT ${PORT}`);
+// වැදගත්ම කෑල්ල: Error Handling
+app.listen(PORT, '0.0.0.0', (err) => {
+    if (err) return console.log('❌ PORT ERROR:', err);
+    console.log(`🚀 SERVER ACTIVE ON PORT ${PORT}`);
+});
+
+process.on('uncaughtException', (err) => {
+    console.log('🔥 CRITICAL ERROR:', err.message);
 });
