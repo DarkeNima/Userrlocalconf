@@ -1,14 +1,32 @@
 const express = require('express');
 const app = express();
 
-const MY_URL = "https://packing-rolling-declare-suites.trycloudflare.com"; 
+// උඹේ DuckDNS URL එක සහ IP එක
+const MY_URL = "http://navidu-ff.duckdns.org"; 
 const MY_IP = "139.162.54.41";
 const PORT = 80;
 
-app.use(express.json()); // JSON දත්ත කියවන්න මේක ඕනේ
+app.use(express.json());
 app.disable('etag');
 app.disable('x-powered-by');
 
+// ✅ පාරවල් අල්ලගන්න කොටස (Logger)
+// මේක ver.php එකට කලින් තියෙන්න ඕනේ හැම දෙයක්ම අල්ලගන්න
+app.use((req, res, next) => {
+    console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
+    
+    if (req.body && Object.keys(req.body).length > 0) {
+        console.log(`📦 Body:`, JSON.stringify(req.body));
+    }
+
+    // ver.php එකට නෙවෙයි නම් එන්නේ, ගේම් එකට Response එකක් දීලා මෙතනින් නවත්තනවා
+    if (req.path !== '/ver.php') {
+        return res.status(200).send("OK");
+    }
+    next();
+});
+
+// ✅ Version Check (ver.php)
 app.get('/ver.php', (req, res) => {
     console.log(`[VER] Request from: ${req.ip}`);
 
@@ -80,19 +98,7 @@ app.get('/ver.php', (req, res) => {
     console.log(`[VER] Sent Response to ${req.ip}`);
 });
 
-// ✅ පාරවල් අල්ලගන්න කොටස (මෙතනින් තමයි Nickname එක ගහද්දී වදින පාර අහු වෙන්නේ)
-// මේක පරණ app.all('*') එක වෙනුවට දාන්න
-app.use((req, res, next) => {
-    console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
-    
-    // Request body එක තියෙනවා නම් ඒකත් බලමු
-    if (req.body && Object.keys(req.body).length > 0) {
-        console.log(`📦 Body:`, JSON.stringify(req.body));
-    }
-
-    // ver.php එකට නෙවෙයි නම් එන්නේ, අපි "OK" යවමු
-    if (req.path !== '/ver.php') {
-        return res.status(200).send("OK");
-    }
-    next();
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 API SERVER RUNNING ON PORT ${PORT}`);
+    console.log(`🔗 URL: ${MY_URL}`);
 });
