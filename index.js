@@ -11,17 +11,35 @@ app.use(express.json());
 app.disable('etag');
 app.disable('x-powered-by');
 
-// Middleware for logging
-app.use((req, res, next) => {
+// ✅ 1. පාරවල් අල්ලන සහ Proxy කරන කොටස
+// මේක Middleware එකක් විදිහට දැම්මම ඔය Wildcard Error එක එන්නේ නැහැ
+app.use(async (req, res, next) => {
+    // ver.php එකට මේක ඕනේ නැහැ, ඒක පල්ලෙහා තියෙනවා
     if (req.path === '/ver.php') return next();
+
     console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
     if (req.body && Object.keys(req.body).length > 0) {
         console.log(`📦 Body:`, JSON.stringify(req.body));
     }
-    next();
+
+    try {
+        console.log(`🔄 [PROXYING] to Astutech: ${req.path}`);
+        const response = await axios({
+            method: req.method,
+            url: `${ASTUTECH_BASE}${req.path}`,
+            data: req.body,
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        console.log(`✅ [ASTUTECH RESPONSE] for ${req.path}:`, JSON.stringify(response.data));
+        res.status(response.status).json(response.data);
+    } catch (error) {
+        console.log(`❌ [ERROR] Proxy failed for ${req.path}: ${error.message}`);
+        res.status(200).send("OK"); // Error ආවොත් ගේම් එක හිර නොවෙන්න OK යවනවා
+    }
 });
 
-// ver.php Route
+// ✅ 2. Version Check (ver.php)
 app.get('/ver.php', (req, res) => {
     console.log(`[VER] Request from: ${req.ip}`);
     const responseData = {
@@ -41,27 +59,7 @@ app.get('/ver.php', (req, res) => {
     res.status(200).send(jsonResponse);
 });
 
-// Proxy logic - Fixed wildcard for Express 5
-app.all('(.*)', async (req, res) => {
-    if (req.path === '/ver.php') return;
-
-    try {
-        console.log(`🔄 [PROXYING] to Astutech: ${req.path}`);
-        const response = await axios({
-            method: req.method,
-            url: `${ASTUTECH_BASE}${req.path}`,
-            data: req.body,
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        console.log(`✅ [ASTUTECH RESPONSE] for ${req.path}:`, JSON.stringify(response.data));
-        res.status(response.status).json(response.data);
-    } catch (error) {
-        console.log(`❌ [ERROR] Proxy failed for ${req.path}: ${error.message}`);
-        res.status(200).send("OK");
-    }
-});
-
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 SNIFFER/PROXY SERVER RUNNING ON PORT ${PORT}`);
+    console.log(`🚀 PROXY SERVER RUNNING ON PORT ${PORT}`);
+    console.log(`🔗 SNIFFER LIVE!`);
 });
