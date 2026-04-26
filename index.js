@@ -8,58 +8,58 @@ const ASTUTECH_BASE = "https://version.astutech.online";
 const PORT = 80;
 
 app.use(express.json());
-app.disable('etag');
-app.disable('x-powered-by');
 
-// ✅ 1. පාරවල් අල්ලන සහ Proxy කරන කොටස
-// මේක Middleware එකක් විදිහට දැම්මම ඔය Wildcard Error එක එන්නේ නැහැ
-app.use(async (req, res, next) => {
-    // ver.php එකට මේක ඕනේ නැහැ, ඒක පල්ලෙහා තියෙනවා
+// ✅ 1. පාරවල් අල්ලන කෑල්ල (Logger)
+app.use((req, res, next) => {
     if (req.path === '/ver.php') return next();
-
     console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
-    if (req.body && Object.keys(req.body).length > 0) {
-        console.log(`📦 Body:`, JSON.stringify(req.body));
-    }
-
-    try {
-        console.log(`🔄 [PROXYING] to Astutech: ${req.path}`);
-        const response = await axios({
-            method: req.method,
-            url: `${ASTUTECH_BASE}${req.path}`,
-            data: req.body,
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        console.log(`✅ [ASTUTECH RESPONSE] for ${req.path}:`, JSON.stringify(response.data));
-        res.status(response.status).json(response.data);
-    } catch (error) {
-        console.log(`❌ [ERROR] Proxy failed for ${req.path}: ${error.message}`);
-        res.status(200).send("OK"); // Error ආවොත් ගේම් එක හිර නොවෙන්න OK යවනවා
-    }
+    next();
 });
 
-// ✅ 2. Version Check (ver.php)
+// ✅ 2. FIX කරපු ver.php (මේකෙන් තමයි ගේම් එක ලෝඩ් කරවන්නේ)
 app.get('/ver.php', (req, res) => {
-    console.log(`[VER] Request from: ${req.ip}`);
+    console.log(`[VER] Fixing Loading Screen for: ${req.ip}`);
+
     const responseData = {
-        "code": 0,
+        "code": 0, // මේක 0 වෙන්නම ඕනේ
         "is_server_open": true,
+        "is_firewall_open": false,
+        "cdn_url": "https://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
+        "backup_cdn_url": "https://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
+        "abhotupdate_cdn_url": "https://dl-core.cdn.freefiremobile.com/live/ABHotUpdates/",
+        "img_cdn_url": "https://dl.cdn.freefiremobile.com/common/",
         "latest_release_version": "OB53",
         "remote_version": "1.123.8",
         "server_url": `${MY_URL}/`, 
         "country_code": "SG",
         "client_ip": req.ip.replace('::ffff:', ''),
         "core_url": "csoversea.castle.freefiremobile.com",
-        "core_ip_list": [MY_IP, "0.0.0.0"], 
-        "ggp_url": "gin.freefiremobile.com"
+        "core_ip_list": [MY_IP, "0.0.0.0"],
+        "ggp_url": "gin.freefiremobile.com",
+        "use_login_optional_download": true,
+        "gamevar": "var_name,comment,var_type,var_value\nANODisabledRegions,string,\"IND,NA\"\n"
     };
+
     const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
     res.set({ 'Content-Type': 'application/json; charset=utf-8' });
     res.status(200).send(jsonResponse);
 });
 
+// ✅ 3. ලොගින් එක Proxy කරමු
+app.all('(.*)', async (req, res) => {
+    try {
+        const response = await axios({
+            method: req.method,
+            url: `${ASTUTECH_BASE}${req.path}`,
+            data: req.body,
+            headers: { 'Content-Type': 'application/json' }
+        });
+        res.status(response.status).json(response.data);
+    } catch (error) {
+        res.status(200).send("OK");
+    }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 PROXY SERVER RUNNING ON PORT ${PORT}`);
-    console.log(`🔗 SNIFFER LIVE!`);
+    console.log(`🚀 LOADING FIXED! RUNNING ON PORT ${PORT}`);
 });
