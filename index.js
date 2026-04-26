@@ -3,14 +3,15 @@ const axios = require('axios');
 const app = express();
 
 const MY_URL = "http://navidu-ff.duckdns.org"; 
-const MY_IP = "139.162.54.41"; // නවීදු, උඹේ VPS IP එක
+const MY_IP = "139.162.54.41"; 
 const ASTUTECH_BASE = "https://version.astutech.online";
 const PORT = 80;
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // 🛠️ Form data කියවන්න මේක අනිවාර්යයි
 app.disable('etag');
 
-// ✅ 1. වැඩ කරන ver.php එක (ලෝඩ් වෙන්න අවශ්‍ය කරන ඔක්කොම දත්ත මෙතන තියෙනවා)
+// ✅ 1. වැඩ කරන ver.php එක (උඹේ සම්පූර්ණ දත්ත ටිකත් එක්කම)
 app.get('/ver.php', (req, res) => {
     const responseData = {
         "code": 0,
@@ -72,7 +73,7 @@ app.get('/ver.php', (req, res) => {
     res.status(200).send(JSON.stringify(responseData).replace(/\//g, '\\/'));
 });
 
-// ✅ 2. Smart Proxy with Real Headers
+// ✅ 2. Smart Proxy with Crash Protection
 app.use(async (req, res, next) => {
     if (req.path === '/ver.php') return next();
 
@@ -91,7 +92,7 @@ app.use(async (req, res, next) => {
                 'Content-Type': 'application/json',
                 'X-Unity-Version': '2019.4.40f1'
             },
-            timeout: 15000 // තත්පර 15 ක් දෙනවා බලන්න
+            timeout: 15000
         });
 
         console.log(`✅ [ASTUTECH SUCCESS]: Response Sent`);
@@ -100,12 +101,14 @@ app.use(async (req, res, next) => {
     } catch (error) {
         console.log(`⚠️ [FALLBACK]: Proxy failed (${error.message}). Sending static success...`);
         
-        // Astutech failure එකකදී ගේම් එක Error නොවී ලොබියට යවන්න මේ JSON එක දෙනවා
+        // 🛠️ CRASH FIX: account එක තියෙනවද කියලා බලලා ගන්නවා, නැත්නම් නමක් දානවා
+        const playerName = (req.body && req.body.account) ? req.body.account : "Navidu_Player";
+
         const fallbackResponse = {
             "status": 200,
             "message": "Success",
             "data": {
-                "account": req.body.account || "navidu_player",
+                "account": playerName,
                 "userid": 100001,
                 "nickname": "DarkeNima",
                 "session_key": "navidu_secret_key",
@@ -118,5 +121,10 @@ app.use(async (req, res, next) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 SNIFFER & FALLBACK LIVE!`);
+    console.log(`🚀 SNIFFER & FALLBACK LIVE WITH FULL DATA!`);
+});
+
+// සර්වර් එක මොනම හේතුවකටවත් නතර වෙන්න දෙන්න එපා
+process.on('uncaughtException', (err) => {
+    console.log('🔥 PREVENTED CRASH:', err.message);
 });
