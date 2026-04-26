@@ -2,89 +2,36 @@ const express = require('express');
 const axios = require('axios');
 const app = express();
 
-// උඹේ අලුත් විස්තර
 const MY_URL = "http://navidu-ff.duckdns.org"; 
-const MY_IP = "139.162.54.41";
+const MY_IP = "139.162.54.41"; // නවීදු, උඹේ VPS IP එක
 const ASTUTECH_BASE = "https://version.astutech.online";
 const PORT = 80;
 
 app.use(express.json());
 app.disable('etag');
-app.disable('x-powered-by');
 
-// ✅ 1. වැඩ කරන ver.php එක (DuckDNS පාරත් එක්ක)
+// ✅ 1. වැඩ කරන ver.php එක (ලෝඩ් වෙන්න අවශ්‍ය කරන ඔක්කොම දත්ත මෙතන තියෙනවා)
 app.get('/ver.php', (req, res) => {
-    console.log(`[VER] Request from: ${req.ip}`);
-
     const responseData = {
         "code": 0,
         "is_server_open": true,
-        "is_firewall_open": false,
-        "cdn_url": "https://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
-        "backup_cdn_url": "https://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
-        "abhotupdate_cdn_url": "https://dl-core.cdn.freefiremobile.com/live/ABHotUpdates/",
-        "img_cdn_url": "https://dl.cdn.freefiremobile.com/common/",
-        "login_download_optionalpack": "optionalclothres:shaders|optionalpetres:optionalpetres_commonab_shader|optionallobbyres:",
-        "need_track_hotupdate": true,
-        "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
         "latest_release_version": "OB53",
-        "min_hint_size": 1,
-        "space_required_in_GB": 1.48,
-        "should_check_ab_load": false,
-        "force_refresh_restype": "optionalavatarres",
         "remote_version": "1.123.8",
         "server_url": `${MY_URL}/`, 
-        "is_review_server": false,
-        "use_login_optional_download": true,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
-        "country_code": "SG",
-        "client_ip": req.ip.replace('::ffff:', ''),
-        "gdpr_version": 0,
-        "billboard_cdn_url": "https://dl.dir.freefiremobile.com/common/OB53/CSH/patchupdate/sghfuHFHf101.ff_extend",
-        "billboard_msg": "",
-        "web_url": "",
-        "billboard_bg_url": "https://dl.cdn.freefiremobile.com/common/OB23/version/Patch_Bg.png",
-        "max_store": "",
-        "max_web": "",
-        "max_video": "",
-        "patchnote_url": "https://dl.dir.freefiremobile.com/common/web_event/aswqooiwd/EnlyjW26.html?lang=en",
-        "multi_region": "",
-        "need_check_ip_list": [],
-        "network_log_server": "https://sgnetwork.ggblueshark.com/",
-        "web_log_server": "https://networkselftest.ff.garena.com/api/",
-        "login_failed_count": 2,
-        "test_url": "",
         "core_url": "csoversea.castle.freefiremobile.com",
-        "core_ip_list": [MY_IP, "0.0.0.0"], 
-        "appstore_url": "http://www.freefiremobile.com/",
-        "backup_appstore_url": "",
-        "garena_login": false,
-        "garena_hint": false,
-        "gop_url": "",
-        "gamevar": "var_name,comment,var_type,var_value\nANODisabledRegions,string,\"IND,NA\"\nANODisabledClientVariant,string,\"ClientUsingVersion_MAX_HPE,ClientUsingVersion_FFI,ClientUsingVersion_MAX|IND,ClientUsingVersion_MAX|NA,ClientUsingVersion_NORMAL|NA\"\nEnableMtpLiteDataRegion,string,\"BR,EUROPE,ID,ME,US,RU,SAC,SG,TH,TW,VN,PK,ZA,BD\"\n",
-        "device_whitelist_version": "1.5.0",
-        "whitelist_mask": 0,
-        "device_whitelist_sp_version": "1.0.0",
-        "whitelist_sp_mask": 0,
+        "core_ip_list": [MY_IP, "0.0.0.0"],
         "ggp_url": "gin.freefiremobile.com",
-        "remote_option_version": "optionallocres:49|optionalavatarres:757|optionalclothres:1184|optionalpetres:871", 
-        "remote_option_version_astc": "optionallocres:49|optionalavatarres:719|optionalclothres:1184|optionalpetres:871"
+        "gamevar": "var_name,comment,var_type,var_value\nANODisabledRegions,string,\"IND,NA\"\n"
     };
-
-    const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
     res.set({ 'Content-Type': 'application/json; charset=utf-8' });
-    res.status(200).send(jsonResponse);
+    res.status(200).send(JSON.stringify(responseData).replace(/\//g, '\\/'));
 });
 
-// ✅ 2. Proxy Middleware (Astutech Sniffer)
+// ✅ 2. Smart Proxy with Real Headers
 app.use(async (req, res, next) => {
     if (req.path === '/ver.php') return next();
 
     console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
-    if (req.body && Object.keys(req.body).length > 0) {
-        console.log(`📦 Body:`, JSON.stringify(req.body));
-    }
     
     try {
         const response = await axios({
@@ -92,22 +39,39 @@ app.use(async (req, res, next) => {
             url: `${ASTUTECH_BASE}${req.path}`,
             data: req.body,
             headers: { 
-                ...req.headers, 
-                'host': 'version.astutech.online' 
+                'Host': 'version.astutech.online',
+                'User-Agent': 'UnityPlayer/2019.4.40f1 (UnityWebRequest/1.0, libcurl/7.80.0-DEV)',
+                'Accept': '*/*',
+                'Accept-Encoding': 'identity',
+                'Content-Type': 'application/json',
+                'X-Unity-Version': '2019.4.40f1'
             },
-            timeout: 10000
+            timeout: 15000 // තත්පර 15 ක් දෙනවා බලන්න
         });
 
-        console.log(`✅ [ASTUTECH RESPONSE]:`, JSON.stringify(response.data));
+        console.log(`✅ [ASTUTECH SUCCESS]: Response Sent`);
         res.status(response.status).json(response.data);
 
     } catch (error) {
-        console.log(`❌ [PROXY FAILED]: ${req.path} - ${error.message}`);
-        res.status(200).send("OK");
+        console.log(`⚠️ [FALLBACK]: Proxy failed (${error.message}). Sending static success...`);
+        
+        // Astutech failure එකකදී ගේම් එක Error නොවී ලොබියට යවන්න මේ JSON එක දෙනවා
+        const fallbackResponse = {
+            "status": 200,
+            "message": "Success",
+            "data": {
+                "account": req.body.account || "navidu_player",
+                "userid": 100001,
+                "nickname": "DarkeNima",
+                "session_key": "navidu_secret_key",
+                "gate_ip": MY_IP,
+                "gate_port": 10001 
+            }
+        };
+        res.status(200).json(fallbackResponse);
     }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 HYBRID DUCKDNS SERVER LIVE!`);
-    console.log(`🔗 URL: ${MY_URL}`);
+    console.log(`🚀 SNIFFER & FALLBACK LIVE!`);
 });
