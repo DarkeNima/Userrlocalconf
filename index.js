@@ -9,32 +9,29 @@ const MY_DOMAIN = 'navidu-ff.duckdns.org';
 const MY_URL = `http://${MY_DOMAIN}`;
 const TARGET_SERVER = 'https://version.astutech.online';
 
-// ─────────────────────────────────────────────────────────
-// 0. GLOBAL LOGGING MIDDLEWARE (හැමදේම බලන්න)
-// ─────────────────────────────────────────────────────────
-
+// Body parsing settings
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true, verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.raw({ type: '*/*', limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
+// ─────────────────────────────────────────────────────────
+// 0. GLOBAL LOGGING MIDDLEWARE
+// ─────────────────────────────────────────────────────────
 app.use((req, res, next) => {
     console.log(`\n📡 [INCOMING] ${req.method} ${req.url}`);
-    if (req.rawBody) {
-        console.log(`📦 Body (${req.rawBody.length} bytes): ${req.rawBody.toString('utf8').substring(0, 500)}`);
-    }
     
     const originalSend = res.send;
     res.send = function(body) {
+        // ලොගින් වලට අදාළ හැම දේම ලොග් කරනවා
         if (req.url.includes('login') || req.url.includes('auth') || req.url.includes('major') || req.url.includes('ver')) {
-            console.log(`🔁 [RESPONSE FROM ${req.url}]:`);
-            console.log(Buffer.isBuffer(body) ? body.toString('utf8').substring(0, 1000) : String(body).substring(0, 1000));
+            console.log(`\n🔁 [RESPONSE FROM ${req.url}]:`);
+            console.log(Buffer.isBuffer(body) ? body.toString('utf8').substring(0, 1500) : String(body).substring(0, 1500));
         }
         originalSend.call(this, body);
     };
     next();
 });
 
-// Helper: Headers Forward කිරීම
 function forwardHeaders(originalHeaders) {
     const headers = { ...originalHeaders };
     delete headers.host;
@@ -43,7 +40,7 @@ function forwardHeaders(originalHeaders) {
 }
 
 // ─────────────────────────────────────────────────────────
-// 1. Proxy Routes
+// 1. PROXY ROUTES
 // ─────────────────────────────────────────────────────────
 
 // ver.php Proxy
@@ -58,11 +55,14 @@ app.get('/ver.php', async (req, res) => {
         let modified = response.data.replace(new RegExp(TARGET_SERVER, 'g'), MY_URL);
         modified = modified.replace(/gin\.freefiremobile\.com/g, MY_DOMAIN);
         res.send(modified);
-    } catch (e) { res.status(502).send("Proxy Error"); }
+    } catch (e) { 
+        console.error("❌ ver.php error:", e.message);
+        res.status(502).send("Proxy Error"); 
+    }
 });
 
-// All-in-One Proxy (MajorLogin ඇතුළුව ඕනෑම path එකක් Astute එකට forward කරයි)
-app.all('/*', async (req, res) => {
+// Catch-All Proxy (අනිත් හැම පාරක්ම මෙතනින් අහු වෙනවා)
+app.all('*', async (req, res) => {
     if (req.path === '/ver.php') return;
     try {
         const response = await axios({
@@ -74,15 +74,19 @@ app.all('/*', async (req, res) => {
             validateStatus: () => true
         });
         res.status(response.status).send(response.data);
-    } catch (e) { res.status(502).send("Proxy Error"); }
+    } catch (e) { 
+        console.error(`❌ Proxy error on ${req.url}:`, e.message);
+        res.status(502).send("Proxy Error"); 
+    }
 });
 
 // ─────────────────────────────────────────────────────────
-// 2. Server Start
+// 2. SERVER START
 // ─────────────────────────────────────────────────────────
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Proxy running on Port ${PORT}`);
+    console.log(`🔎 Logging is active. Waiting for game requests...`);
 });
 
 const tcpServer = net.createServer((socket) => {
