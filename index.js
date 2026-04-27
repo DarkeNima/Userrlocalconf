@@ -118,7 +118,11 @@ app.get('/ver.php', async (req, res) => {
 // ─────────────────────────────────────────────────────────
 // 3. Catch-all proxy – forward everything else to srv0010.astutech.online
 // ─────────────────────────────────────────────────────────
-app.all('*', async (req, res) => {
+// ❌ Remove this problematic line
+// app.all('*', async (req, res) => { ...
+
+// ✅ Replace it with a named wildcard. 'splat' can be any name you prefer.
+app.all('/{*splat}', async (req, res) => {
     // Skip already handled paths
     if (req.path === '/ver.php') return;
 
