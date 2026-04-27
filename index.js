@@ -76,7 +76,9 @@ app.get('/ver.php', async (req, res) => {
 });
 
 // 2. Catch-all Proxy
-app.all('*', async (req, res) => {
+// Catch-all Proxy (Express 5.0+ සඳහා නිවැරදි ක්‍රමය)
+app.all('/:path*', async (req, res) => {
+    // /ver.php එකට මේක අදාළ කරගන්න එපා (ඒක උඩින් handle වෙන නිසා)
     if (req.path === '/ver.php') return;
     
     console.log(`🔄 [PROXY] Forwarding: ${req.path}`);
@@ -89,16 +91,17 @@ app.all('*', async (req, res) => {
             responseType: 'arraybuffer'
         });
 
-        // Log response for debugging
         if (req.path.includes('login') || req.method === 'POST') {
-            console.log(`📡 Response from Astute:`, Buffer.from(response.data).toString('utf8').substring(0, 500));
+            console.log(`📡 Response Received from Astute (Status: ${response.status})`);
         }
 
         res.status(response.status).send(response.data);
     } catch (error) {
+        console.error(`❌ Proxy Error: ${error.message}`);
         res.status(502).send('Proxy Error');
     }
 });
+
 
 // 3. Servers Start
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
