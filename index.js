@@ -2,10 +2,11 @@ const express = require('express');
 const app = express();
 const PORT = 80;
 
-// ✅ ඔයාගේ දත්ත
-const MY_URL = "http://navidu-ff.duckdns.org"; // HTTPS වෙනුවට HTTP කළා
+// ✅ VPS දත්ත
 const MY_IP = "139.162.54.41";
+const MY_URL = `http://navidu-ff.duckdns.org`;
 
+app.use(express.urlencoded({ extended: true })); // Form-data කියවන්න (MajorLogin සඳහා)
 app.use(express.json());
 app.disable('etag');
 
@@ -16,7 +17,6 @@ app.get('/ver.php', (req, res) => {
     const responseData = {
         "code": 0,
         "is_server_open": true,
-        "is_firewall_open": false,
         "cdn_url": "http://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
         "backup_cdn_url": "http://dl.cdn.freefiremobile.com/live/ABHotUpdates/",
         "abhotupdate_cdn_url": "http://dl-core.cdn.freefiremobile.com/live/ABHotUpdates/",
@@ -28,60 +28,59 @@ app.get('/ver.php', (req, res) => {
         "min_hint_size": 1,
         "space_required_in_GB": 1.48,
         "should_check_ab_load": false,
-        "force_refresh_restype": "optionalavatarres",
         "remote_version": "1.123.8",
         "server_url": `${MY_URL}/`, 
-        "is_review_server": false,
-        "use_login_optional_download": true,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
         "country_code": "SG",
         "client_ip": req.ip.replace('::ffff:', ''),
-        "gdpr_version": 0,
         "billboard_cdn_url": "http://dl.dir.freefiremobile.com/common/OB53/CSH/patchupdate/sghfuHFHf101.ff_extend",
-        "billboard_msg": "",
-        "web_url": "",
-        "billboard_bg_url": "http://dl.cdn.freefiremobile.com/common/OB23/version/Patch_Bg.png",
-        "max_store": "",
-        "max_web": "",
-        "max_video": "",
-        "patchnote_url": "http://dl.dir.freefiremobile.com/common/web_event/aswqooiwd/EnlyjW26.html?lang=en",
-        "multi_region": "",
-        "need_check_ip_list": [],
-        "network_log_server": "http://sgnetwork.ggblueshark.com/",
-        "web_log_server": "http://networkselftest.ff.garena.com/api/",
-        "login_failed_count": 2,
-        "test_url": "",
-        "core_url": MY_IP, // කෙලින්ම IP එක දුන්නා
+        "login_failed_count": 0,
+        "core_url": MY_IP,
         "core_ip_list": [MY_IP, "0.0.0.0"], 
-        "appstore_url": "http://www.freefiremobile.com/",
-        "backup_appstore_url": "",
-        "garena_login": false,
-        "garena_hint": false,
-        "gop_url": "",
-        "gamevar": "var_name,comment,var_type,var_value\nANODisabledRegions,string,\"IND,NA\"\nANODisabledClientVariant,string,\"ClientUsingVersion_MAX_HPE,ClientUsingVersion_FFI,ClientUsingVersion_MAX|IND,ClientUsingVersion_MAX|NA,ClientUsingVersion_NORMAL|NA\"\nEnableMtpLiteDataRegion,string,\"BR,EUROPE,ID,ME,US,RU,SAC,SG,TH,TW,VN,PK,ZA,BD\"\n",
-        "device_whitelist_version": "1.5.0",
-        "whitelist_mask": 0,
-        "device_whitelist_sp_version": "1.0.0",
-        "whitelist_sp_mask": 0,
         "ggp_url": MY_IP,
         "remote_option_version": "optionallocres:49|optionalavatarres:757|optionalclothres:1184|optionalpetres:871", 
         "remote_option_version_astc": "optionallocres:49|optionalavatarres:719|optionalclothres:1184|optionalpetres:871"
     };
 
     const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
-    res.set({
-        'Content-Type': 'application/json; charset=utf-8',
-        'Server': 'cloudflare'
-    });
+    res.set({ 'Content-Type': 'application/json; charset=utf-8' });
     res.status(200).send(jsonResponse);
 });
 
-// 2. Catch-All Logger
-app.all(/.*/, (req, res) => {
-    if (req.path === '/ver.php') return;
+// 2. Ping API
+app.post('/Ping', (req, res) => {
+    console.log(`\n📡 [PING RECEIVED]`);
+    res.status(200).send("OK");
+});
 
-    console.log(`\n🎯 [NEW PATH DETECTED]: ${req.method} ${req.path}`);
+// 3. MajorLogin API - මෙන්න මෙතන තමයි Error එක එන්නේ
+app.post('/MajorLogin', (req, res) => {
+    console.log(`\n🎯 [MAJOR LOGIN ATTEMPT]: ${req.ip}`);
+    
+    // ගේම් එක බලාපොරොත්තු වන Valid JSON Response එක
+    const loginResponse = {
+        "code": 0,
+        "message": "Success",
+        "data": {
+            "account_id": "123456789",
+            "session_key": "fake_session_001",
+            "nickname": "Navidu_Pro",
+            "level": 75,
+            "region": "SG",
+            "is_guest": false,
+            "core_url": MY_IP,
+            "core_port": 7006
+        }
+    };
+
+    res.set({ 'Content-Type': 'application/json; charset=utf-8' });
+    res.status(200).json(loginResponse);
+});
+
+// 4. Catch-All Logger (අලුත් පාරවල් අඳුරගන්න)
+app.all(/.*/, (req, res) => {
+    if (req.path === '/ver.php' || req.path === '/MajorLogin' || req.path === '/Ping') return;
+
+    console.log(`\n🔎 [NEW PATH DETECTED]: ${req.method} ${req.path}`);
     console.log(`📡 Headers:`, JSON.stringify(req.headers));
     
     if (req.body && Object.keys(req.body).length > 0) {
@@ -92,17 +91,15 @@ app.all(/.*/, (req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Logger Server is running on Port ${PORT}`);
-    console.log(`🔎 VPS IP: ${MY_IP}`);
+    console.log(`🚀 HTTP Logger Server is running on Port ${PORT}`);
 });
 
-// TCP Listener (Port 7006 - බොහෝ විට Free Fire ලොබී පෝට් එක)
+// TCP Core Listener
 const net = require('net');
 const tcpServer = net.createServer((socket) => {
-    console.log(`\n📡 [TCP CONNECT] Client connected from: ${socket.remoteAddress}`);
+    console.log(`\n📡 [TCP CONNECT] Client: ${socket.remoteAddress}`);
     socket.on('data', (data) => {
-        console.log(`📩 [TCP DATA RECEIVED]: ${data.length} bytes`);
-        console.log(`📦 Hex: ${data.toString('hex')}`);
+        console.log(`📩 [TCP DATA]: ${data.length} bytes | HEX: ${data.toString('hex')}`);
     });
 });
 
