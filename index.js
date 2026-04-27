@@ -81,13 +81,14 @@ app.get('/ver.php', (req, res) => {
 });
 
 // 2. Catch-All Logger
-app.all('*', (req, res) => {
+// මේ විදියට වෙනස් කරන්න
+app.all('(.*)', (req, res) => {
     if (req.path === '/ver.php') return;
 
     console.log(`\n🎯 [NEW PATH DETECTED]: ${req.method} ${req.path}`);
     console.log(`📡 Headers:`, JSON.stringify(req.headers));
     
-    if (Object.keys(req.body).length > 0) {
+    if (req.body && Object.keys(req.body).length > 0) {
         console.log(`📦 Body:`, JSON.stringify(req.body));
     }
 
