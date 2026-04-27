@@ -66,6 +66,8 @@ const axiosInstance = axios.create({
 // ─────────────────────────────────────────────────────────
 // 1. /ver.php – rewrite server_url to YOUR domain (http)
 // ─────────────────────────────────────────────────────────
+// ** FIX 1: Ensure your specific routes are DEFINED BEFORE the catch-all wildcard **
+// This is critical, otherwise the wildcard will try to handle them.
 app.get('/ver.php', async (req, res) => {
     console.log(`\n🔧 [VER.PHP] Fetching & rewriting URLs...`);
     try {
@@ -120,11 +122,15 @@ app.get('/ver.php', async (req, res) => {
 
 // ─────────────────────────────────────────────────────────
 // 3. Catch-all proxy – forward everything else to srv0010.astutech.online
-//    FIXED: Use '/*' instead of '*' for Express 5 compatibility
+// ** FIX 2: Replace the old catch-all route with the Express 5 compatible syntax **
+// Options:
+//   A) Use a named wildcard parameter: '/*splat' (Recommended)
+//   B) Use a regular expression: /.*/
 // ─────────────────────────────────────────────────────────
 const catchAllHandler = async (req, res) => {
-    if (req.path === '/ver.php') return;
-
+    // Your existing /ver.php and any future specific routes are handled above, so we don't need a guard clause here for /ver.php
+    // The wildcard will only match routes that weren't already matched.
+    
     const targetUrl = `${TARGET_API}${req.path}`;
     console.log(`🔄 [PROXY] Forwarding ${req.method} ${req.path} → ${targetUrl}`);
     console.log(`🔑 Forwarding headers:`, JSON.stringify(forwardHeaders(req.headers), null, 2));
@@ -161,9 +167,9 @@ const catchAllHandler = async (req, res) => {
     }
 };
 
-// ✅ FIXED: Use '/*' instead of '*' – works in Express 4 and 5
-app.all('/*', catchAllHandler);
-// For Express 5 you could also use app.all('/{*splat}', catchAllHandler) but '/*' is safe.
+// ** This is the line that fixes your startup crash! **
+// Use a named wildcard parameter '/*splat' or a regex: '/.*'
+app.all('/*splat', catchAllHandler); 
 
 // ─────────────────────────────────────────────────────────
 // 4. TCP Core Listener (port 7006)
