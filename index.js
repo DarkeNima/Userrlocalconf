@@ -54,3 +54,35 @@ app.all(/.*/, async (req, res) => {
             // 3. Force Domain Lock
             data.server_url = `http://${MY_DOMAIN}/`;
             data.core_url = MY_DOMAIN;
+            data.core_ip_list = [MY_DOMAIN, "0.0.0.0"];
+
+            console.log("✅ Proxy re-routed to Astute & Version Bypassed!");
+        }
+
+        // Response එක ගේම් එකට යැවීම
+        res.set(response.headers);
+        res.status(response.status).send(data);
+
+    } catch (error) {
+        console.log(`❌ ERROR on ${req.path}: ${error.message}`);
+        res.status(200).send("OK");
+    }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Universal Proxy is active on Port 80`);
+});
+
+// 📡 TCP Core Listener (මැච් එක ඇතුළත දත්ත සඳහා)
+const net = require('net');
+const tcpServer = net.createServer((socket) => {
+    console.log(`\n📡 [TCP CONNECT] Client: ${socket.remoteAddress}`);
+    socket.on('data', (data) => {
+        console.log(`📩 [TCP DATA]: ${data.length} bytes | HEX: ${data.toString('hex')}`);
+    });
+    socket.on('error', (err) => console.log(`❌ TCP Error: ${err.message}`));
+});
+
+tcpServer.listen(7006, '0.0.0.0', () => {
+    console.log("🚀 TCP Core Listener is active on Port 7006");
+});
