@@ -1,18 +1,18 @@
 const express = require('express');
-const axios = require('axios');
 const app = express();
-
-const MY_URL = "http://navidu-ff.duckdns.org"; 
-const MY_IP = "139.162.54.41"; 
-const ASTUTECH_BASE = "https://version.astutech.online";
 const PORT = 80;
 
+// ✅ මෙතනට ඔයාගේ ඇත්තම දත්ත දාන්න
+const MY_URL = "https://navidu-ff.duckdns.org"; 
+const MY_IP = "139.162.54.41";
+
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // 🛠️ Form data කියවන්න මේක අනිවාර්යයි
 app.disable('etag');
 
-// ✅ 1. වැඩ කරන ver.php එක (උඹේ සම්පූර්ණ දත්ත ටිකත් එක්කම)
+// 1. Version API
 app.get('/ver.php', (req, res) => {
+    console.log(`\n[!] VER.PHP REQUEST RECEIVED FROM: ${req.ip}`);
+    
     const responseData = {
         "code": 0,
         "is_server_open": true,
@@ -52,7 +52,7 @@ app.get('/ver.php', (req, res) => {
         "web_log_server": "https://networkselftest.ff.garena.com/api/",
         "login_failed_count": 2,
         "test_url": "",
-        "core_url": "csoversea.castle.freefiremobile.com",
+        "core_url": "navidu-ff.duckdns.org", // මෙතනටත් DuckDNS එක දෙන්න
         "core_ip_list": [MY_IP, "0.0.0.0"], 
         "appstore_url": "http://www.freefiremobile.com/",
         "backup_appstore_url": "",
@@ -64,67 +64,37 @@ app.get('/ver.php', (req, res) => {
         "whitelist_mask": 0,
         "device_whitelist_sp_version": "1.0.0",
         "whitelist_sp_mask": 0,
-        "ggp_url": "gin.freefiremobile.com",
+        "ggp_url": "navidu-ff.duckdns.org", // මෙතනටත් DuckDNS එක දෙන්න
         "remote_option_version": "optionallocres:49|optionalavatarres:757|optionalclothres:1184|optionalpetres:871", 
         "remote_option_version_astc": "optionallocres:49|optionalavatarres:719|optionalclothres:1184|optionalpetres:871"
     };
 
-    res.set({ 'Content-Type': 'application/json; charset=utf-8' });
-    res.status(200).send(JSON.stringify(responseData).replace(/\//g, '\\/'));
+    // Slash escape කරන කොටස
+    const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
+
+    res.set({
+        'Content-Type': 'application/json; charset=utf-8',
+        'Server': 'cloudflare'
+    });
+
+    res.status(200).send(jsonResponse);
 });
 
-// ✅ 2. Smart Proxy with Crash Protection
-app.use(async (req, res, next) => {
-    if (req.path === '/ver.php') return next();
+// 2. Catch-All Logger
+app.all('*', (req, res) => {
+    if (req.path === '/ver.php') return;
 
-    console.log(`🎯 [DETECTED]: ${req.method} ${req.path}`);
+    console.log(`\n🎯 [NEW PATH DETECTED]: ${req.method} ${req.path}`);
+    console.log(`📡 Headers:`, JSON.stringify(req.headers));
     
-    try {
-        const response = await axios({
-            method: req.method,
-            url: `${ASTUTECH_BASE}${req.path}`,
-            data: req.body,
-            headers: { 
-                'Host': 'version.astutech.online',
-                'User-Agent': 'UnityPlayer/2019.4.40f1 (UnityWebRequest/1.0, libcurl/7.80.0-DEV)',
-                'Accept': '*/*',
-                'Accept-Encoding': 'identity',
-                'Content-Type': 'application/json',
-                'X-Unity-Version': '2019.4.40f1'
-            },
-            timeout: 15000
-        });
-
-        console.log(`✅ [ASTUTECH SUCCESS]: Response Sent`);
-        res.status(response.status).json(response.data);
-
-    } catch (error) {
-        console.log(`⚠️ [FALLBACK]: Proxy failed (${error.message}). Sending static success...`);
-        
-        // 🛠️ CRASH FIX: account එක තියෙනවද කියලා බලලා ගන්නවා, නැත්නම් නමක් දානවා
-        const playerName = (req.body && req.body.account) ? req.body.account : "Navidu_Player";
-
-        const fallbackResponse = {
-            "status": 200,
-            "message": "Success",
-            "data": {
-                "account": playerName,
-                "userid": 100001,
-                "nickname": "DarkeNima",
-                "session_key": "navidu_secret_key",
-                "gate_ip": MY_IP,
-                "gate_port": 10001 
-            }
-        };
-        res.status(200).json(fallbackResponse);
+    if (Object.keys(req.body).length > 0) {
+        console.log(`📦 Body:`, JSON.stringify(req.body));
     }
+
+    res.status(200).send("OK"); 
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 SNIFFER & FALLBACK LIVE WITH FULL DATA!`);
-});
-
-// සර්වර් එක මොනම හේතුවකටවත් නතර වෙන්න දෙන්න එපා
-process.on('uncaughtException', (err) => {
-    console.log('🔥 PREVENTED CRASH:', err.message);
+    console.log(`🚀 Logger Server is running on Port ${PORT}`);
+    console.log(`🔎 VPS IP: ${MY_IP}`);
 });
