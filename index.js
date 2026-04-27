@@ -1,49 +1,107 @@
 const express = require('express');
 const axios = require('axios');
+const net = require('net');
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 const app = express();
 
-// SSL Certificates (අනිවාර්යයෙන්ම මේ Paths තියෙන්න ඕනේ)
-const sslOptions = {
-    key: fs.readFileSync('/etc/letsencrypt/live/navidu-ff.duckdns.org/privkey.pem'),
-    cert: fs.readFileSync('/etc/letsencrypt/live/navidu-ff.duckdns.org/fullchain.pem')
-};
+const HTTP_PORT = 80;
+const HTTPS_PORT = 443;
 
-app.use(express.raw({ type: '*/*', limit: '10mb' }));
+const MY_DOMAIN = 'navidu-ff.duckdns.org';
+const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
+const TARGET_VER_PHP = 'https://version.astutech.online';
+const TARGET_API = 'https://srv0010.astutech.online';
 
-const axiosInstance = axios.create({ httpsAgent: new https.Agent({ rejectUnauthorized: false }) });
+// ─────────────────────────────────────────────────────────
+// 🛠️ SSL Certificates (Certbot Paths)
+// ─────────────────────────────────────────────────────────
+let sslOptions;
+try {
+    sslOptions = {
+        key: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/privkey.pem`),
+        cert: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/fullchain.pem`)
+    };
+    console.log('✅ SSL certificates (Let\'s Encrypt) loaded successfully');
+} catch (err) {
+    console.error('❌ Failed to load SSL certificates:', err.message);
+    process.exit(1);
+}
 
+// Middleware to capture raw body
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+app.use(express.urlencoded({ extended: true, verify: (req, res, buf) => { req.rawBody = buf; } }));
+app.use(express.raw({ type: '*/*', limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
+
+// Logging logic
+app.use((req, res, next) => {
+    const protocol = req.secure ? 'HTTPS' : 'HTTP';
+    console.log(`\n🚨 [${protocol}] REQUEST: ${req.method} ${req.path}`);
+    next();
+});
+
+const axiosInstance = axios.create({
+    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+});
+
+function forwardHeaders(originalHeaders) {
+    const headers = { ...originalHeaders };
+    delete headers.host;
+    delete headers['content-length'];
+    return headers;
+}
+
+// 1. /ver.php Proxy & Rewrite
 app.get('/ver.php', async (req, res) => {
-    console.log("🛠️ Game is asking for version config...");
+    console.log(`🔧 [VER.PHP] Rewriting for domain: ${MY_DOMAIN}`);
     try {
-        const response = await axiosInstance.get(`https://version.astutech.online/ver.php?${new URLSearchParams(req.query).toString()}`, {
-            headers: { ...req.headers, host: 'version.astutech.online' }
+        const queryString = new URLSearchParams(req.query).toString();
+        const response = await axiosInstance({
+            method: 'GET',
+            url: `${TARGET_VER_PHP}/ver.php?${queryString}`,
+            headers: forwardHeaders(req.headers),
+            responseType: 'text'
         });
-        let data = response.data.replace(/version\.astutech\.online/g, 'navidu-ff.duckdns.org').replace(/srv0010\.astutech\.online/g, 'navidu-ff.duckdns.org');
-        res.send(data);
-    } catch (e) {
-        console.log("❌ Error fetching from Astute:", e.message);
+
+        let modifiedBody = response.data;
+        modifiedBody = modifiedBody.replace(/version\.astutech\.online/g, MY_DOMAIN);
+        modifiedBody = modifiedBody.replace(/srv0010\.astutech\.online/g, MY_DOMAIN);
+
+        res.status(response.status).send(modifiedBody);
+    } catch (error) {
+        console.error('❌ /ver.php error:', error.message);
         res.status(502).send('Error');
     }
 });
 
-// Proxy everything else
-app.use(async (req, res) => {
+// 2. Catch-all Proxy
+app.all('*', async (req, res) => {
+    if (req.path === '/ver.php') return;
+    
+    console.log(`🔄 [PROXY] Forwarding: ${req.path}`);
     try {
         const response = await axiosInstance({
             method: req.method,
-            url: `https://srv0010.astutech.online${req.path}`,
-            headers: { ...req.headers, host: 'srv0010.astutech.online' },
-            data: req.body,
+            url: `${TARGET_API}${req.path}`,
+            headers: forwardHeaders(req.headers),
+            data: req.rawBody,
             responseType: 'arraybuffer'
         });
+
+        // Log response for debugging
+        if (req.path.includes('login') || req.method === 'POST') {
+            console.log(`📡 Response from Astute:`, Buffer.from(response.data).toString('utf8').substring(0, 500));
+        }
+
         res.status(response.status).send(response.data);
-    } catch (e) { res.status(500).send('Proxy Error'); }
+    } catch (error) {
+        res.status(502).send('Proxy Error');
+    }
 });
 
-http.createServer(app).listen(80, '0.0.0.0');
-https.createServer(sslOptions, app).listen(443, '0.0.0.0', () => {
-    console.log('🚀 PROXY IS FULLY RUNNING ON 80 & 443');
+// 3. Servers Start
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
+    console.log(`🚀 PROXY READY ON 80 & 443`);
 });
