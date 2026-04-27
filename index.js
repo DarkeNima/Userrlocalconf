@@ -66,8 +66,6 @@ const axiosInstance = axios.create({
 // ─────────────────────────────────────────────────────────
 // 1. /ver.php – rewrite server_url to YOUR domain (http)
 // ─────────────────────────────────────────────────────────
-// ** FIX 1: Ensure your specific routes are DEFINED BEFORE the catch-all wildcard **
-// This is critical, otherwise the wildcard will try to handle them.
 app.get('/ver.php', async (req, res) => {
     console.log(`\n🔧 [VER.PHP] Fetching & rewriting URLs...`);
     try {
@@ -104,7 +102,7 @@ app.get('/ver.php', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 2. OPTIONAL: Hardcoded /MajorLogin (uncomment to go independent)
+// 2. OPTIONAL: Hardcoded /MajorLogin (uncomment later)
 // ─────────────────────────────────────────────────────────
 // app.post('/MajorLogin', (req, res) => {
 //     console.log(`🎮 [MOCK] Independent MajorLogin response`);
@@ -121,16 +119,12 @@ app.get('/ver.php', async (req, res) => {
 // });
 
 // ─────────────────────────────────────────────────────────
-// 3. Catch-all proxy – forward everything else to srv0010.astutech.online
-// ** FIX 2: Replace the old catch-all route with the Express 5 compatible syntax **
-// Options:
-//   A) Use a named wildcard parameter: '/*splat' (Recommended)
-//   B) Use a regular expression: /.*/
+// 3. CATCH-ALL PROXY – using app.use() (works in Express 4 & 5)
 // ─────────────────────────────────────────────────────────
-const catchAllHandler = async (req, res) => {
-    // Your existing /ver.php and any future specific routes are handled above, so we don't need a guard clause here for /ver.php
-    // The wildcard will only match routes that weren't already matched.
-    
+const catchAllHandler = async (req, res, next) => {
+    // Skip already handled routes
+    if (req.path === '/ver.php') return next();
+
     const targetUrl = `${TARGET_API}${req.path}`;
     console.log(`🔄 [PROXY] Forwarding ${req.method} ${req.path} → ${targetUrl}`);
     console.log(`🔑 Forwarding headers:`, JSON.stringify(forwardHeaders(req.headers), null, 2));
@@ -167,17 +161,17 @@ const catchAllHandler = async (req, res) => {
     }
 };
 
-// ** This is the line that fixes your startup crash! **
-// Use a named wildcard parameter '/*splat' or a regex: '/.*'
-app.all('/*splat', catchAllHandler); 
+// ✅ This catches EVERY request (GET, POST, etc.) for ANY path
+app.use(catchAllHandler);
 
 // ─────────────────────────────────────────────────────────
-// 4. TCP Core Listener (port 7006)
+// 4. TCP Core Listener (port 7006) – log everything
 // ─────────────────────────────────────────────────────────
 const tcpServer = net.createServer((socket) => {
     console.log(`\n📡 [TCP CORE] Client connected: ${socket.remoteAddress}`);
     socket.on('data', (data) => {
         console.log(`📩 [TCP DATA] ${data.length} bytes from ${socket.remoteAddress}`);
+        // Optionally echo or parse game packets here
     });
     socket.on('error', (err) => console.log(`❌ TCP Error: ${err.message}`));
     socket.on('close', () => console.log(`🔌 TCP Client disconnected`));
