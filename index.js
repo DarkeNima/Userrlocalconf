@@ -18,13 +18,21 @@ const TARGET_API = 'https://srv0010.astutech.online';
 // ─────────────────────────────────────────────────────────
 // Load SSL certificates (update paths if needed)
 // ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+// Load REAL SSL certificates from Let's Encrypt
+// ─────────────────────────────────────────────────────────
 let sslOptions;
 try {
     sslOptions = {
-        key: fs.readFileSync('key.pem'),
-        cert: fs.readFileSync('cert.pem')
-        // If you have a CA bundle: ca: fs.readFileSync('ca.pem')
+        key: fs.readFileSync('/etc/letsencrypt/live/navidu-ff.duckdns.org/privkey.pem'),
+        cert: fs.readFileSync('/etc/letsencrypt/live/navidu-ff.duckdns.org/fullchain.pem')
     };
+    console.log('✅ REAL Let\'s Encrypt SSL certificates loaded successfully');
+} catch (err) {
+    console.error('❌ Failed to load SSL certificates:', err.message);
+    process.exit(1);
+}
+
     console.log('✅ SSL certificates loaded successfully');
 } catch (err) {
     console.error('❌ Failed to load SSL certificates:', err.message);
