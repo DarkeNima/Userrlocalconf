@@ -6,44 +6,37 @@ const http = require('http');
 const fs = require('fs');
 const app = express();
 
-const HTTP_PORT = 80;
-const HTTPS_PORT = 443;
-
 const MY_DOMAIN = 'navidu-ff.duckdns.org';
 const TARGET_VER_PHP = 'https://version.astutech.online';
 const TARGET_API = 'https://srv0010.astutech.online';
 
-// 1. SSL Certificates (Let's Encrypt)
+// 1. SSL Load
 let sslOptions;
 try {
     sslOptions = {
         key: fs.readFileSync('/etc/letsencrypt/live/navidu-ff.duckdns.org/privkey.pem'),
         cert: fs.readFileSync('/etc/letsencrypt/live/navidu-ff.duckdns.org/fullchain.pem')
     };
-    console.log('✅ REAL SSL Certificates loaded!');
+    console.log('✅ SSL Certificates Loaded!');
 } catch (err) {
-    console.error('❌ SSL Load Error:', err.message);
+    console.error('❌ SSL Error:', err.message);
     process.exit(1);
 }
 
-// 2. Middleware & Raw Body
+// 2. Middleware
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.raw({ type: '*/*', limit: '10mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // 3. Logger
 app.use((req, res, next) => {
     console.log(`\n🚨 [${req.protocol.toUpperCase()}] ${req.method} ${req.path}`);
-    
     const originalSend = res.send;
     let responseBody = null;
     res.send = function(body) { responseBody = body; originalSend.call(this, body); };
-
     res.on('finish', () => {
         if (req.path.includes('login') || req.method === 'POST') {
             console.log(`🔁 Response for ${req.path}:`);
-            if (responseBody) {
-                console.log(Buffer.isBuffer(responseBody) ? responseBody.toString('utf8').substring(0, 2000) : String(responseBody).substring(0, 2000));
-            }
+            if (responseBody) console.log(responseBody.toString().substring(0, 1000));
         }
     });
     next();
@@ -51,18 +44,17 @@ app.use((req, res, next) => {
 
 const axiosInstance = axios.create({ httpsAgent: new https.Agent({ rejectUnauthorized: false }) });
 
-// 4. Ver.php Rewrite
+// 4. Routes
 app.get('/ver.php', async (req, res) => {
     try {
         const response = await axiosInstance.get(`${TARGET_VER_PHP}/ver.php?${new URLSearchParams(req.query).toString()}`, {
             headers: { ...req.headers, host: 'version.astutech.online' }
         });
-        let data = response.data.replace(/version\.astutech\.online/g, MY_DOMAIN).replace(/srv0010\.astutech\.online/g, MY_DOMAIN);
-        res.status(response.status).send(data);
+        let body = response.data.replace(/version\.astutech\.online/g, MY_DOMAIN).replace(/srv0010\.astutech\.online/g, MY_DOMAIN);
+        res.status(response.status).send(body);
     } catch (e) { res.status(502).send('Error'); }
 });
 
-// 5. Proxy All
 app.use(async (req, res) => {
     if (req.path === '/ver.php') return;
     try {
@@ -77,8 +69,8 @@ app.use(async (req, res) => {
     } catch (e) { res.status(502).send('Proxy Error'); }
 });
 
-// 6. Start Servers
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
-    console.log(`🚀 Proxy running on 80 & 443! Waiting for game...`);
+// 5. Start
+http.createServer(app).listen(80, '0.0.0.0');
+https.createServer(sslOptions, app).listen(443, '0.0.0.0', () => {
+    console.log(`🚀 EVERYTHING IS LIVE! Ready for game...`);
 });
