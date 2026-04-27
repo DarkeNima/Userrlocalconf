@@ -96,7 +96,31 @@ app.all(/.*/, (req, res) => {
     res.status(200).send("OK"); 
 });
 
+
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Logger Server is running on Port ${PORT}`);
     console.log(`🔎 VPS IP: ${MY_IP}`);
 });
+
+const net = require('net');
+
+// ලොබී එකට එන සම්බන්ධතා අල්ලන්න
+const tcpServer = net.createServer((socket) => {
+    console.log(`\n📡 [TCP CONNECT] Client connected from: ${socket.remoteAddress}`);
+
+    socket.on('data', (data) => {
+        console.log(`📩 [TCP DATA RECEIVED]: ${data.length} bytes`);
+        console.log(`📦 Hex: ${data.toString('hex')}`);
+    });
+
+    socket.on('error', (err) => {
+        console.log(`❌ [TCP ERROR]: ${err.message}`);
+    });
+});
+
+// Port 10001 හෝ ගේම් එක බලාපොරොත්තු වන port එකක්
+tcpServer.listen(10001, '0.0.0.0', () => {
+    console.log("🚀 TCP Core Listener is active on Port 10001");
+});
+
