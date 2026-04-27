@@ -2,13 +2,34 @@ const express = require('express');
 const axios = require('axios');
 const net = require('net');
 const https = require('https');
+const http = require('http');
+const fs = require('fs');
 const app = express();
-const PORT = 80;
+
+const HTTP_PORT = 80;
+const HTTPS_PORT = 443;
 
 const MY_DOMAIN = 'navidu-ff.duckdns.org';
-const MY_URL = `http://${MY_DOMAIN}`;
+const MY_URL_HTTP = `http://${MY_DOMAIN}`;
+const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 const TARGET_VER_PHP = 'https://version.astutech.online';
 const TARGET_API = 'https://srv0010.astutech.online';
+
+// ─────────────────────────────────────────────────────────
+// Load SSL certificates (update paths if needed)
+// ─────────────────────────────────────────────────────────
+let sslOptions;
+try {
+    sslOptions = {
+        key: fs.readFileSync('key.pem'),
+        cert: fs.readFileSync('cert.pem')
+        // If you have a CA bundle: ca: fs.readFileSync('ca.pem')
+    };
+    console.log('✅ SSL certificates loaded successfully');
+} catch (err) {
+    console.error('❌ Failed to load SSL certificates:', err.message);
+    process.exit(1);
+}
 
 // ─────────────────────────────────────────────────────────
 // Global middleware: capture raw body & log ALL incoming requests
@@ -24,13 +45,14 @@ function getBodyPreview(req) {
     return raw;
 }
 
-// Log EVERY request with path highlight
+// Log EVERY request (will work for both HTTP and HTTPS)
 app.use((req, res, next) => {
-    console.log(`\n🚨 GAME IS HITTING PATH: ${req.method} ${req.path}`);
+    const protocol = req.secure ? 'HTTPS' : 'HTTP';
+    console.log(`\n🚨 [${protocol}] GAME IS HITTING PATH: ${req.method} ${req.path}`);
     console.log(`📋 Full Headers:`, JSON.stringify(req.headers, null, 2));
     console.log(`📦 Body (${req.rawBody ? req.rawBody.length : 0} bytes): ${getBodyPreview(req)}`);
     
-    // Intercept response for logging (only for login paths)
+    // Intercept response for logging
     const originalSend = res.send;
     const originalJson = res.json;
     let responseBody = null;
@@ -53,18 +75,19 @@ app.use((req, res, next) => {
 // Forward headers: keep EVERYTHING except 'host' and 'content-length'
 function forwardHeaders(originalHeaders) {
     const headers = { ...originalHeaders };
-    delete headers.host;               // axios will set correct host
-    delete headers['content-length'];  // axios recomputes
+    delete headers.host;
+    delete headers['content-length'];
+    // Keep all Garena-specific, X-Forwarded-*, etc.
     return headers;
 }
 
-// Axios instance with HTTPS ignoring certificate errors (temporary for debugging)
+// Axios instance with HTTPS ignoring certificate errors (temporary)
 const axiosInstance = axios.create({
     httpsAgent: new https.Agent({ rejectUnauthorized: false }),
 });
 
 // ─────────────────────────────────────────────────────────
-// 1. /ver.php – rewrite server_url to YOUR domain (http)
+// 1. /ver.php – rewrite server_url to YOUR domain (preserve HTTPS)
 // ─────────────────────────────────────────────────────────
 app.get('/ver.php', async (req, res) => {
     console.log(`\n🔧 [VER.PHP] Fetching & rewriting URLs...`);
@@ -84,10 +107,12 @@ app.get('/ver.php', async (req, res) => {
         const contentType = response.headers['content-type'] || '';
 
         if (contentType.includes('text/') || contentType.includes('application/json')) {
+            // Replace domains but KEEP https:// (so game uses our HTTPS server)
             modifiedBody = modifiedBody.replace(/version\.astutech\.online/g, MY_DOMAIN);
             modifiedBody = modifiedBody.replace(/srv0010\.astutech\.online/g, MY_DOMAIN);
-            modifiedBody = modifiedBody.replace(/https:\/\//g, 'http://');
-            console.log(`✅ Rewritten: ${TARGET_VER_PHP} / srv0010 → ${MY_URL}`);
+            // Do NOT change https:// to http:// – leave as https://
+            // The game will then connect to https://navidu-ff.duckdns.org
+            console.log(`✅ Rewritten: ${TARGET_VER_PHP} / srv0010 → ${MY_URL_HTTPS}`);
         }
 
         res.status(response.status);
@@ -102,15 +127,15 @@ app.get('/ver.php', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 2. OPTIONAL: Hardcoded /MajorLogin (uncomment later)
+// 2. OPTIONAL: Hardcoded /MajorLogin (uncomment when ready)
 // ─────────────────────────────────────────────────────────
 // app.post('/MajorLogin', (req, res) => {
-//     console.log(`🎮 [MOCK] Independent MajorLogin response`);
+//     console.log(`🎮 [MOCK] Independent MajorLogin response via HTTPS`);
 //     res.json({
 //         "status": 0,
 //         "account_id": "123456789",
 //         "session_key": "fake_session_" + Date.now(),
-//         "core_url": "http://navidu-ff.duckdns.org:7006",
+//         "core_url": `${MY_URL_HTTPS}:7006`,  // or ws:// if needed
 //         "game_version": "1.123.8",
 //         "server_time": Math.floor(Date.now() / 1000),
 //         "region": "IND",
@@ -119,11 +144,11 @@ app.get('/ver.php', async (req, res) => {
 // });
 
 // ─────────────────────────────────────────────────────────
-// 3. CATCH-ALL PROXY – using app.use() (works in Express 4 & 5)
+// 3. Catch-all proxy – forward everything else to srv0010.astutech.online
 // ─────────────────────────────────────────────────────────
-const catchAllHandler = async (req, res, next) => {
-    // Skip already handled routes
-    if (req.path === '/ver.php') return next();
+const catchAllHandler = async (req, res) => {
+    // Skip already handled paths
+    if (req.path === '/ver.php') return;
 
     const targetUrl = `${TARGET_API}${req.path}`;
     console.log(`🔄 [PROXY] Forwarding ${req.method} ${req.path} → ${targetUrl}`);
@@ -161,17 +186,16 @@ const catchAllHandler = async (req, res, next) => {
     }
 };
 
-// ✅ This catches EVERY request (GET, POST, etc.) for ANY path
+// Use app.use() to catch all methods and paths (works for both HTTP and HTTPS)
 app.use(catchAllHandler);
 
 // ─────────────────────────────────────────────────────────
-// 4. TCP Core Listener (port 7006) – log everything
+// 4. TCP Core Listener (port 7006) – same as before
 // ─────────────────────────────────────────────────────────
 const tcpServer = net.createServer((socket) => {
     console.log(`\n📡 [TCP CORE] Client connected: ${socket.remoteAddress}`);
     socket.on('data', (data) => {
         console.log(`📩 [TCP DATA] ${data.length} bytes from ${socket.remoteAddress}`);
-        // Optionally echo or parse game packets here
     });
     socket.on('error', (err) => console.log(`❌ TCP Error: ${err.message}`));
     socket.on('close', () => console.log(`🔌 TCP Client disconnected`));
@@ -181,11 +205,19 @@ tcpServer.listen(7006, '0.0.0.0', () => {
 });
 
 // ─────────────────────────────────────────────────────────
-// Start HTTP proxy
+// 5. Create and start HTTP and HTTPS servers
 // ─────────────────────────────────────────────────────────
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌐 HTTP Proxy running on port ${PORT}`);
-    console.log(`🔗 Your domain: ${MY_URL} → hijacking Astute's server_url`);
-    console.log(`📡 Forwarding API calls to ${TARGET_API}`);
-    console.log(`🔓 TLS certificate validation disabled (rejectUnauthorized: false)`);
+// HTTP server (port 80)
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => {
+    console.log(`🌐 HTTP proxy listening on port ${HTTP_PORT}`);
 });
+
+// HTTPS server (port 443)
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
+    console.log(`🔒 HTTPS proxy listening on port ${HTTPS_PORT}`);
+});
+
+console.log(`\n🔗 Your domain: ${MY_URL_HTTPS} → hijacking Astute's server_url`);
+console.log(`📡 Forwarding API calls to ${TARGET_API}`);
+console.log(`🔓 TLS certificate validation disabled for outgoing requests (rejectUnauthorized: false)`);
+console.log(`✅ Ready to accept both HTTP and HTTPS game traffic.\n`);
