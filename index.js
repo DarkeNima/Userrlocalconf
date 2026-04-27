@@ -82,7 +82,8 @@ app.get('/ver.php', (req, res) => {
 
 // 2. Catch-All Logger
 // මේ විදියට වෙනස් කරන්න
-app.all('(.*)', (req, res) => {
+// කෙලින්ම RegExp object එකක් පාවිච්චි කරන්න
+app.all(/.*/, (req, res) => {
     if (req.path === '/ver.php') return;
 
     console.log(`\n🎯 [NEW PATH DETECTED]: ${req.method} ${req.path}`);
