@@ -8,10 +8,10 @@ const PORT = 80;
 const MY_DOMAIN = 'navidu-ff.duckdns.org';
 const MY_URL = `http://${MY_DOMAIN}`;
 const TARGET_VER_PHP = 'https://version.astutech.online';
-const TARGET_API = 'https://srv0010.astutech.online';   // all other endpoints
+const TARGET_API = 'https://srv0010.astutech.online';
 
 // ─────────────────────────────────────────────────────────
-// Global middleware: capture raw body & log EVERY incoming request
+// Global middleware: capture raw body & log ALL incoming requests
 // ─────────────────────────────────────────────────────────
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true, verify: (req, res, buf) => { req.rawBody = buf; } }));
@@ -55,14 +55,12 @@ function forwardHeaders(originalHeaders) {
     const headers = { ...originalHeaders };
     delete headers.host;               // axios will set correct host
     delete headers['content-length'];  // axios recomputes
-    // Do NOT delete any Garena-specific headers (X-Garena-*, X-Forwarded-*, etc.)
     return headers;
 }
 
 // Axios instance with HTTPS ignoring certificate errors (temporary for debugging)
 const axiosInstance = axios.create({
     httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-    // Also allow http -> https forwarding without issues
 });
 
 // ─────────────────────────────────────────────────────────
@@ -104,7 +102,7 @@ app.get('/ver.php', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 2. OPTIONAL: Hardcoded /MajorLogin (uncomment when ready)
+// 2. OPTIONAL: Hardcoded /MajorLogin (uncomment to go independent)
 // ─────────────────────────────────────────────────────────
 // app.post('/MajorLogin', (req, res) => {
 //     console.log(`🎮 [MOCK] Independent MajorLogin response`);
@@ -122,7 +120,7 @@ app.get('/ver.php', async (req, res) => {
 
 // ─────────────────────────────────────────────────────────
 // 3. Catch-all proxy – forward everything else to srv0010.astutech.online
-//    Works with Express 4 (app.all('*')) and Express 5 (app.all('/{*splat}'))
+//    FIXED: Use '/*' instead of '*' for Express 5 compatibility
 // ─────────────────────────────────────────────────────────
 const catchAllHandler = async (req, res) => {
     if (req.path === '/ver.php') return;
@@ -163,9 +161,9 @@ const catchAllHandler = async (req, res) => {
     }
 };
 
-// Express 4 compatible wildcard
-app.all('*', catchAllHandler);
-// If you have Express 5, also keep: app.all('/{*splat}', catchAllHandler); but 'app.all('*')' is fine for v4.
+// ✅ FIXED: Use '/*' instead of '*' – works in Express 4 and 5
+app.all('/*', catchAllHandler);
+// For Express 5 you could also use app.all('/{*splat}', catchAllHandler) but '/*' is safe.
 
 // ─────────────────────────────────────────────────────────
 // 4. TCP Core Listener (port 7006)
@@ -174,7 +172,6 @@ const tcpServer = net.createServer((socket) => {
     console.log(`\n📡 [TCP CORE] Client connected: ${socket.remoteAddress}`);
     socket.on('data', (data) => {
         console.log(`📩 [TCP DATA] ${data.length} bytes from ${socket.remoteAddress}`);
-        // Later: implement custom game logic
     });
     socket.on('error', (err) => console.log(`❌ TCP Error: ${err.message}`));
     socket.on('close', () => console.log(`🔌 TCP Client disconnected`));
