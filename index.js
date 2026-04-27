@@ -27,22 +27,25 @@ app.all(/.*/, async (req, res) => {
         let data = response.data;
 
         if (req.path.includes('ver.php')) {
-            console.log("🛠️ Fixing Version & Bypass Update...");
+            console.log("🛠️ --- MODIFYING VER.PHP DATA ---");
             
-            // 1. Force Open
+            // 1. Force Server Open
             data.is_server_open = true;
             
-            // 2. Bypass Update (මෙතන OB53 වෙනුවට ඔයාගේ දැනට තියෙන Version එක දාන්නත් පුළුවන්)
-            // ගොඩක් වෙලාවට remote_version එක ඔයාගේ ගේම් එකේ තියෙන එකට සමාන කළාම Update එක එන්නේ නැහැ.
+            // 2. Bypass Update
+            // මචං, මෙතන "OB53" හරියන්නේ නැත්නම් ඔයාගේ ගේම් එකේ ඇත්තම version එක (උදා: "1.103.1") මෙතනට දාන්න.
             data.latest_release_version = "OB53"; 
-            
-            // 3. URLs වෙනස් කිරීම
+            data.remote_version = "OB53"; 
+
+            // 3. Domain Replacement
+            // Astute සර්වර් එකේ URLs ඔක්කොම ඔයාගේ DuckDNS එකට හරවනවා.
             let dataStr = JSON.stringify(data);
             dataStr = dataStr.replace(/version\.astutech\.online/g, MY_DOMAIN);
             dataStr = dataStr.replace(/versions\.garenanow\.live/g, MY_DOMAIN);
+            dataStr = dataStr.replace(/gin\.freefiremobile\.com/g, MY_DOMAIN); 
             data = JSON.parse(dataStr);
 
-            console.log("✅ Version Bypassed!");
+            console.log("✅ Modified JSON sent to game!");
         }
 
         res.set(response.headers);
