@@ -34,26 +34,45 @@ if (originalBinary.length !== 999) {
 // Helper: extract JWT and its start/end indices
 // ─────────────────────────────────────────────────────────
 function extractJwtWithPosition(bin) {
+    // JWT එක පටන් ගන්න තැන "eyJ" (0x65 0x79 0x4a) වලින් හොයාගන්නවා
+    let start = -1;
     for (let i = 0; i < bin.length - 2; i++) {
-        if (bin[i] === 0x65 && bin[i+1] === 0x79 && bin[i+2] === 0x4a) { // "eyJ"
-            let start = i;
-            let dotCount = 0;
-            let end = start;
-            for (let j = start; j < bin.length && dotCount < 3; j++) {
-                if (bin[j] === 0x2e) dotCount++; // "."
-                end = j;
-            }
-            if (dotCount === 3) {
-                return {
-                    start: start,
-                    end: end,
-                    jwt: bin.slice(start, end + 1).toString('utf8')
-                };
-            }
+        if (bin[i] === 0x65 && bin[i+1] === 0x79 && bin[i+2] === 0x4a) {
+            start = i;
+            break;
         }
     }
-    return null;
+    if (start === -1) return null;
+
+    // JWT එකේ තියෙන්න පුළුවන් අකුරු විතරක් (A-Z, a-z, 0-9, -, _, .) තෝරගන්නවා
+    let end = start;
+    for (let i = start; i < bin.length; i++) {
+        const c = bin[i];
+        const isJwtChar = (
+            (c >= 0x41 && c <= 0x5a) || // A-Z
+            (c >= 0x61 && c <= 0x7a) || // a-z
+            (c >= 0x30 && c <= 0x39) || // 0-9
+            c === 0x2d || c === 0x5f || c === 0x2e // -, _, .
+        );
+        if (isJwtChar) {
+            end = i;
+        } else {
+            break; // JWT එක ඉවර වෙන තැන (non-base64 character එකක් හමු වූ විට)
+        }
+    }
+
+    const jwt = bin.slice(start, end + 1).toString('utf8');
+    const parts = jwt.split('.');
+    
+    // JWT එකේ කොටස් 3ක් (dots 2ක්) තියෙනවද කියලා චෙක් කරනවා
+    if (parts.length !== 3) {
+        console.error(`⚠️ Found something, but it has ${parts.length} parts instead of 3.`);
+        return null;
+    }
+
+    return { start, end, jwt };
 }
+
 
 // ─────────────────────────────────────────────────────────
 // Patch binary: replace specific fields in the JWT payload
