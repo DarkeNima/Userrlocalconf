@@ -4,6 +4,7 @@ const https = require('https');
 const fs = require('fs');
 const net = require('net');
 const axios = require('axios');
+const path = require('path');
 
 const app = express();
 const HTTP_PORT = 80;
@@ -13,6 +14,7 @@ const MY_DOMAIN = 'navidu-ff.duckdns.org';
 const MY_IP = '139.162.54.41';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 const TARGET_API = 'https://srv0010.astutech.online';
+const LOGIN_BIN_FILE = path.join(__dirname, 'login_success.bin');
 
 // SSL certificates
 let sslOptions;
@@ -27,7 +29,7 @@ try {
     process.exit(1);
 }
 
-// Helper to forward headers (remove host & content-length)
+// Helper to forward headers
 function forwardHeaders(headers) {
     const h = { ...headers };
     delete h.host;
@@ -35,21 +37,18 @@ function forwardHeaders(headers) {
     return h;
 }
 
-// Axios instance for proxying (ignore SSL errors)
 const axiosInstance = axios.create({
     httpsAgent: new https.Agent({ rejectUnauthorized: false }),
 });
 
-// Body parsing for local routes (not needed for proxied ones)
 app.use(express.raw({ type: '*/*', limit: '10mb' }));
 app.disable('etag');
 
 // ─────────────────────────────────────────────────────────
-// 1. /ver.php – full static JSON (no expiration issues)
+// 1. /ver.php – full local JSON (no change)
 // ─────────────────────────────────────────────────────────
 app.get('/ver.php', (req, res) => {
-    console.log(`\n[VER.PHP] Request from ${req.ip}`);
-
+    console.log(`\n[VER.PHP] from ${req.ip}`);
     const verData = {
         "code": 0,
         "is_server_open": true,
@@ -73,28 +72,23 @@ app.get('/ver.php', (req, res) => {
         "use_background_download": false,
         "use_background_download_lobby": false,
         "country_code": "SG",
-        "client_ip": "0.0.0.0",
+        "client_ip": req.ip.replace('::ffff:', ''),
         "gdpr_version": 0,
         "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf102.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf103.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf104.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf105.ff_extend",
         "ggp_url": MY_IP,
         "core_url": MY_IP,
         "core_ip_list": [MY_IP, "0.0.0.0"]
     };
-
-    let clientIp = req.ip;
-    if (clientIp.startsWith('::ffff:')) clientIp = clientIp.substring(7);
-    verData.client_ip = clientIp;
-
     res.setHeader('Content-Type', 'application/json');
     res.status(200).json(verData);
-    console.log(`✅ Sent ver.php (is_server_open:true)`);
+    console.log(`✅ ver.php sent`);
 });
 
 // ─────────────────────────────────────────────────────────
-// 2. Proxy /MajorLogin to Astute (fresh session every time)
+// 2. /MajorLogin – with hijack & auto‑save
 // ─────────────────────────────────────────────────────────
 app.post('/MajorLogin', async (req, res) => {
-    console.log(`\n🎯 [PROXY /MajorLogin] from ${req.ip}`);
+    console.log(`\n🎯 [MajorLogin] from ${req.ip}`);
     try {
         const targetUrl = `${TARGET_API}/MajorLogin`;
         const response = await axiosInstance({
@@ -105,12 +99,38 @@ app.post('/MajorLogin', async (req, res) => {
             responseType: 'arraybuffer',
             validateStatus: () => true
         });
+
+        // If Astute returns 200 (success), save the binary and forward it
+        if (response.status === 200) {
+            console.log(`✅ Astute returned 200 – saving to ${LOGIN_BIN_FILE}`);
+            fs.writeFileSync(LOGIN_BIN_FILE, response.data);
+            // Forward to client
+            res.status(200);
+            Object.entries(response.headers).forEach(([k, v]) => {
+                if (k.toLowerCase() !== 'content-length') res.setHeader(k, v);
+            });
+            res.send(response.data);
+            console.log(`✅ Forwarded fresh success binary (${response.data.length} bytes)`);
+            return;
+        }
+
+        // If Astute returns error (400, etc.) and we have a saved binary, hijack
+        if (fs.existsSync(LOGIN_BIN_FILE)) {
+            console.log(`⚠️ Astute returned ${response.status} – hijacking with saved binary`);
+            const hijackData = fs.readFileSync(LOGIN_BIN_FILE);
+            res.setHeader('Content-Type', 'application/octet-stream');
+            res.status(200).send(hijackData);
+            console.log(`✅ Hijacked with saved binary (${hijackData.length} bytes)`);
+            return;
+        }
+
+        // No saved binary – forward the error as‑is
+        console.log(`❌ No saved binary and Astute error – forwarding ${response.status}`);
         res.status(response.status);
         Object.entries(response.headers).forEach(([k, v]) => {
             if (k.toLowerCase() !== 'content-length') res.setHeader(k, v);
         });
         res.send(response.data);
-        console.log(`✅ Forwarded /MajorLogin (status ${response.status})`);
     } catch (err) {
         console.error(`❌ Proxy error:`, err.message);
         res.status(502).send('Proxy error');
@@ -118,10 +138,10 @@ app.post('/MajorLogin', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 3. Proxy /Ping to Astute (keeps session alive)
+// 3. /Ping – simple forward (no hijack needed)
 // ─────────────────────────────────────────────────────────
 app.post('/Ping', async (req, res) => {
-    console.log(`📡 [PROXY /Ping]`);
+    console.log(`📡 [Ping]`);
     try {
         const targetUrl = `${TARGET_API}/Ping`;
         const response = await axiosInstance({
@@ -138,43 +158,31 @@ app.post('/Ping', async (req, res) => {
         });
         res.send(response.data);
     } catch (err) {
-        console.error(`❌ Ping proxy error:`, err.message);
-        res.status(502).send('OK'); // fallback
+        console.error(`❌ Ping error:`, err.message);
+        res.status(200).send("OK");
     }
 });
 
-// ─────────────────────────────────────────────────────────
-// 4. Catch-all (Express 5 compatible)
-// ─────────────────────────────────────────────────────────
+// 4. Catch‑all
 app.all('/*splat', (req, res) => {
     if (['/ver.php', '/MajorLogin', '/Ping'].includes(req.path)) return;
     console.log(`🔎 [OTHER] ${req.method} ${req.path}`);
     res.status(200).send("OK");
 });
 
-// ─────────────────────────────────────────────────────────
-// 5. TCP Core Listener (port 7006)
-// ─────────────────────────────────────────────────────────
+// 5. TCP Core
 const tcpServer = net.createServer((socket) => {
     const addr = socket.remoteAddress;
-    console.log(`\n📡 [TCP CONNECT] ${addr}`);
-    socket.on('data', (data) => {
-        console.log(`📩 [TCP DATA] ${data.length} bytes from ${addr}`);
-    });
+    console.log(`\n📡 [TCP] ${addr}`);
+    socket.on('data', (data) => console.log(`📩 TCP ${data.length} bytes`));
     socket.on('error', (err) => console.log(`❌ TCP error: ${err.message}`));
 });
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Core on ${TCP_PORT}`));
 
-// ─────────────────────────────────────────────────────────
-// 6. Start HTTP & HTTPS servers
-// ─────────────────────────────────────────────────────────
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => {
-    console.log(`🌐 HTTP on ${HTTP_PORT}`);
-});
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
-    console.log(`🔒 HTTPS on ${HTTPS_PORT}`);
-});
+// 6. Start HTTP & HTTPS
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
 
-console.log(`\n🚀 SERVER READY`);
+console.log(`\n🚀 SERVER READY – Hijack mode ACTIVE`);
 console.log(`🔗 ${MY_URL_HTTPS}`);
-console.log(`📡 /MajorLogin → ${TARGET_API}/MajorLogin (fresh session)`);
+console.log(`💾 Success binary saved to ${LOGIN_BIN_FILE}`);
