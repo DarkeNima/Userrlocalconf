@@ -30,10 +30,9 @@ try {
 }
 
 // ─────────────────────────────────────────────────────────
-// Middleware – ensure raw body is not parsed for /MajorLogin
-// We'll handle /MajorLogin separately without body parsers
+// Middleware
 // ─────────────────────────────────────────────────────────
-app.use(express.json());    // only for other routes
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.disable('etag');
 
@@ -43,14 +42,14 @@ app.disable('etag');
 app.get('/ver.php', (req, res) => {
     console.log(`\n[VER.PHP] Request from ${req.ip}`);
 
-    // Base JSON (exactly as captured, but we will modify fields)
+    // ... (the verData object remains exactly as you've defined it) ...
     const verData = {
-        "code": 2,  // will change to 0
+        "code": 2,
         "use_login_optional_download": false,
         "use_background_download": false,
         "use_background_download_lobby": false,
         "country_code": "SG",
-        "client_ip": "15.235.211.216", // will replace
+        "client_ip": "15.235.211.216",
         "gdpr_version": 0,
         "billboard_cdn_url": "",
         "billboard_msg": "",
@@ -87,29 +86,26 @@ app.get('/ver.php', (req, res) => {
     const jsonResponse = JSON.stringify(verData);
     res.setHeader('Content-Type', 'application/json');
     res.status(200).send(jsonResponse);
-    console.log(`✅ Sent ver.php (code:0, server_url:${verData.server_url})`);
+    // console.log(`✅ Sent ver.php (code:0, server_url:${verData.server_url})`);
 });
 
 // ─────────────────────────────────────────────────────────
 // 2. /Ping – simple OK response
 // ─────────────────────────────────────────────────────────
 app.post('/Ping', (req, res) => {
-    console.log(`📡 [PING]`);
+    // console.log(`📡 [PING]`);
     res.status(200).send("OK");
 });
 
 // ─────────────────────────────────────────────────────────
-// 3. /MajorLogin – serve saved binary with safe error handling
-//    Note: We disable body parsing for this route to avoid conflicts
+// 3. /MajorLogin – serve saved binary
 // ─────────────────────────────────────────────────────────
 app.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MAJOR LOGIN] from ${req.ip}`);
-
     if (!fs.existsSync(LOGIN_BIN_FILE)) {
         console.error(`❌ Missing ${LOGIN_BIN_FILE}`);
         return res.status(500).send('Login data not available');
     }
-
     try {
         const binaryData = fs.readFileSync(LOGIN_BIN_FILE);
         res.setHeader('Content-Type', 'application/octet-stream');
@@ -122,9 +118,12 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 4. Catch‑all for any other routes (log only)
+// 4. !!! THIS IS THE CRITICAL FIX !!!
+// Catch-all routes require a named parameter in Express 5.
+// The line has been changed from: app.all('*', ...) to: app.all('/*splat', ...)
+// You can name the parameter anything.
 // ─────────────────────────────────────────────────────────
-app.all('*', (req, res) => {
+app.all('/*splat', (req, res) => {
     if (['/ver.php', '/MajorLogin', '/Ping'].includes(req.path)) return;
     console.log(`🔎 [OTHER PATH] ${req.method} ${req.path}`);
     res.status(200).send("OK");
