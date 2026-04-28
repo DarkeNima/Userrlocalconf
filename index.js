@@ -21,59 +21,46 @@ const binaryTemplate = Buffer.from(BASE64_TEMPLATE, 'base64');
 console.log(`✅ Loaded binary template (${binaryTemplate.length} bytes)`);
 
 // ─────────────────────────────────────────────────────────
-// Scan raw buffer for "eyJ" (bytes 0x65, 0x79, 0x4a)
-// Then extract JWT by counting dots until we have 3 parts.
+// Extract JWT from binary and return { jwt, start, end }
 // ─────────────────────────────────────────────────────────
-function extractJwtFromBinary(bin) {
-    // Look for the byte sequence 'e','y','J'
+function extractJwtWithPosition(bin) {
     for (let i = 0; i < bin.length - 2; i++) {
         if (bin[i] === 0x65 && bin[i+1] === 0x79 && bin[i+2] === 0x4a) {
             let start = i;
             let dotCount = 0;
             let end = start;
             for (let j = start; j < bin.length && dotCount < 3; j++) {
-                if (bin[j] === 0x2e) dotCount++; // 0x2e = '.'
+                if (bin[j] === 0x2e) dotCount++;
                 end = j;
             }
             if (dotCount === 3) {
-                // Extract the JWT as a string from the buffer slice
                 const jwtBuffer = bin.slice(start, end + 1);
-                return jwtBuffer.toString('utf8');
+                return {
+                    jwt: jwtBuffer.toString('utf8'),
+                    start: start,
+                    end: end
+                };
             }
         }
     }
     return null;
 }
 
-// Replace JWT in binary (using buffer search and replace)
-function replaceJwtInBinary(bin, newJwt) {
-    const oldJwt = extractJwtFromBinary(bin);
-    if (!oldJwt) throw new Error('No JWT found in template');
-    // Convert buffer to a Buffer that we can manipulate
-    // We'll replace the old JWT substring with newJwt
-    const oldBuffer = Buffer.from(oldJwt, 'utf8');
-    const newBuffer = Buffer.from(newJwt, 'utf8');
-    // Find the index of old JWT in the binary
-    let index = -1;
-    for (let i = 0; i <= bin.length - oldBuffer.length; i++) {
-        if (bin.slice(i, i + oldBuffer.length).equals(oldBuffer)) {
-            index = i;
-            break;
-        }
-    }
-    if (index === -1) throw new Error('Could not locate JWT in binary');
-    // Create new buffer by replacing the slice
-    const newBin = Buffer.alloc(bin.length - oldBuffer.length + newBuffer.length);
-    bin.copy(newBin, 0, 0, index);
-    newBuffer.copy(newBin, index);
-    bin.copy(newBin, index + newBuffer.length, index + oldBuffer.length);
+// Replace JWT using known positions
+function replaceJwtByPosition(bin, newJwt, start, end) {
+    const newJwtBuffer = Buffer.from(newJwt, 'utf8');
+    const newBin = Buffer.alloc(bin.length - (end - start + 1) + newJwtBuffer.length);
+    bin.copy(newBin, 0, 0, start);
+    newJwtBuffer.copy(newBin, start);
+    bin.copy(newBin, start + newJwtBuffer.length, end + 1);
     return newBin;
 }
 
-// Build login response with custom payload
+// Build login response from custom payload
 function buildLoginResponse(customPayload) {
-    const oldJwt = extractJwtFromBinary(binaryTemplate);
-    if (!oldJwt) throw new Error('Template missing JWT');
+    const jwtInfo = extractJwtWithPosition(binaryTemplate);
+    if (!jwtInfo) throw new Error('Template missing JWT');
+    const { jwt: oldJwt, start, end } = jwtInfo;
     const [headerB64, oldPayloadB64, signatureB64] = oldJwt.split('.');
     
     let oldPayload = {};
@@ -81,7 +68,7 @@ function buildLoginResponse(customPayload) {
         const oldPayloadJson = Buffer.from(oldPayloadB64, 'base64url').toString('utf8');
         oldPayload = JSON.parse(oldPayloadJson);
     } catch (e) {
-        console.warn('Could not parse old payload, using empty');
+        // ignore – use empty payload
     }
     
     const newPayload = { ...oldPayload, ...customPayload };
@@ -90,7 +77,8 @@ function buildLoginResponse(customPayload) {
     
     const newPayloadB64 = Buffer.from(JSON.stringify(newPayload)).toString('base64url');
     const newJwt = `${headerB64}.${newPayloadB64}.${signatureB64}`;
-    return replaceJwtInBinary(binaryTemplate, newJwt);
+    
+    return replaceJwtByPosition(binaryTemplate, newJwt, start, end);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -159,10 +147,10 @@ app.get('/ver.php', (req, res) => {
 app.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MajorLogin] from ${req.ip}`);
     
-    // EDIT YOUR CUSTOM PLAYER DATA HERE
+    // ✨ EDIT YOUR CUSTOM PLAYER DATA HERE ✨
     const customPayload = {
-        account_id: 123456789,
-        nickname: "MyServerEmu",
+        account_id: 123456789,           // change to any number
+        nickname: "MyServer",            // custom nickname
         session_key: "emu_" + Date.now(),
     };
     
@@ -218,4 +206,4 @@ https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
 
 console.log(`\n🚀 100% INDEPENDENT FREE FIRE EMULATOR`);
 console.log(`🔗 Base URL: ${MY_URL_HTTPS}`);
-console.log(`🎮 /MajorLogin generates custom binary (buffer scanning)`);
+console.log(`🎮 /MajorLogin generates custom binary using index‑based JWT replacement`);
