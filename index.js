@@ -79,33 +79,45 @@ function extractJwtWithPosition(bin) {
 // ─────────────────────────────────────────────────────────
 function patchLoginBinary(customPayload) {
     const info = extractJwtWithPosition(originalBinary);
-    if (!info) throw new Error('JWT not found in template. Make sure login_success.bin is correct.');
+    if (!info) throw new Error('JWT not found in template.');
     const { start, end, jwt } = info;
     const parts = jwt.split('.');
-    if (parts.length !== 3) throw new Error('Invalid JWT structure');
     const [header, oldPayloadB64, signature] = parts;
     
     let oldPayloadStr = Buffer.from(oldPayloadB64, 'base64url').toString('utf8');
-    let oldPayload;
+    let payload;
     try {
-        oldPayload = JSON.parse(oldPayloadStr);
+        payload = JSON.parse(oldPayloadStr);
     } catch(e) {
-        oldPayload = {};
+        payload = {};
     }
     
-    const newPayload = { ...oldPayload, ...customPayload };
-    newPayload.core_url = MY_IP;
-    newPayload.exp = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 3600;
+    // ─────────────────────────────────────────────────────────
+    // මෙතනදී අපි පරණ පේලෝඩ් එකේ තිබ්බ දත්ත වෙනස් කරන්නේ නැහැ.
+    // කරන්නෙ අපේ සර්වර් එකට ඕන දේවල් විතරක් Update කරන එක.
+    // ─────────────────────────────────────────────────────────
     
-    let newPayloadStr = JSON.stringify(newPayload);
+    // 1. Core IP එක උඹේ VPS IP එකට මාරු කරනවා
+    payload.core_url = MY_IP; 
+    
+    // 2. Expire date එක අවුරුදු 10කට පස්සට දානවා (Session expired නොවෙන්න)
+    payload.exp = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 3600;
+
+    // 3. උඹට අලුතින් මොනවා හරි දාන්න ඕන නම් විතරක් customPayload පාවිච්චි වෙනවා
+    // නැත්නම් ඔරිජිනල් නමයි ID එකයිම තියෙයි.
+    Object.assign(payload, customPayload);
+    
+    let newPayloadStr = JSON.stringify(payload);
     let oldPayloadLen = oldPayloadStr.length;
     let newPayloadLen = newPayloadStr.length;
     
+    // Length එක සමාන කරන්න Padding කරනවා
     if (newPayloadLen < oldPayloadLen) {
         const padCount = oldPayloadLen - newPayloadLen;
         newPayloadStr = newPayloadStr.slice(0, -1) + ' '.repeat(padCount) + '}';
     } else if (newPayloadLen > oldPayloadLen) {
-        console.warn(`New payload too long (${newPayloadLen} > ${oldPayloadLen}), truncating.`);
+        // තවමත් දිග වැඩියි නම් Warning එකක් දෙනවා
+        console.warn(`⚠️ Warning: Payload still too long (${newPayloadLen} > ${oldPayloadLen})`);
         newPayloadStr = newPayloadStr.slice(0, oldPayloadLen);
     }
     
@@ -113,9 +125,6 @@ function patchLoginBinary(customPayload) {
     const newJwt = `${header}.${newPayloadB64}.${signature}`;
     const newJwtBuffer = Buffer.from(newJwt, 'utf8');
     
-    if (newJwtBuffer.length !== (end - start + 1)) {
-        throw new Error(`JWT length mismatch!`);
-    }
     const patched = Buffer.alloc(originalBinary.length);
     originalBinary.copy(patched, 0, 0, start);
     newJwtBuffer.copy(patched, start);
@@ -123,6 +132,7 @@ function patchLoginBinary(customPayload) {
     
     return patched;
 }
+
 
 // ─────────────────────────────────────────────────────────
 // SSL certificates (Let's Encrypt)
@@ -190,11 +200,20 @@ app.get('/ver.php', (req, res) => {
 app.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MajorLogin] from ${req.ip}`);
     
-    // උඹට ඕන ID එකයි නමයි මෙතනින් වෙනස් කරගනින්
-    const customPayload = {
-        account_id: 123456789,         
-        nickname: "NaviduEmu",             
-    };
+    // මෙතන හිස්ව තිබ්බොත් ඔරිජිනල් නමයි ID එකයි ඔටෝම වැටෙනවා
+    const customPayload = {}; 
+    
+    try {
+        const patchedBinary = patchLoginBinary(customPayload);
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.status(200).send(patchedBinary);
+        console.log(`✅ Sent patched binary (Original ID/Name preserved)`);
+    } catch (err) {
+        console.error(`❌ Patching error:`, err.message);
+        res.status(500).send('Internal server error');
+    }
+});
+
     
     try {
         const patchedBinary = patchLoginBinary(customPayload);
