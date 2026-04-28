@@ -13,7 +13,7 @@ const MY_IP = '139.162.54.41';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 
 // ─────────────────────────────────────────────────────────
-// 1. Embedded binary template (Base64 of your login_success.bin)
+// Embedded binary template (Base64 of login_success.bin)
 // ─────────────────────────────────────────────────────────
 const BASE64_TEMPLATE = `1ZkuNBIAAABTRwAAAFNHIgBTRyogbGl2ZUKWIGV5SmhiR2NpT2lKSVV6STFOaUlzSW5OMmNpSTZJakVpTENKMGVYQWlPaUpLVjFRaWZRtmV5SmhZMk52ZFc1MFgzbGtrR294TXprNE9UZ3lNekEyTlN3aWJtbGphMjVhbVdzaU9pSm1ORlZDVmU1T2VYYzJja0k0ZHV2SDBPOVJYQUFHSGpla0lpd2libTkwYV9jbVdubHZiaU9pVTBjaUxTMWtiMk5yWTI5dVpXNWxYbkpsWjJsdmJpT2lVMENpTENKbWVYUmxjbTVoYmZocFpDSTZJbUU0TVRaaE56WmxZak00Tnpoak9ESmpOelZtT1RFeE1ERXhZVEUyT0dSbElpd2laWGwwWlhKdVlXeGZkSGx3WlNJNk1URXNJaHBzWVhSMFlXUmZpRE9qTVN3aW1HeGxiVzUwWDIxbGNuTnBiMjVpSWpvaU1TNHhNak11T0N0emRXNWxkbkpsYm5WemRHbHZiaU9pTVN3aW1XMTFiR3gwYjNKMmNteHZiV1VpT2pBd0xDSnBjeFpsYlhWc1lYUnZjbWxmYzJOdmNtVWlPaUptWVd4elpYUnzcpXp6yYmNjU3mYWRjYnpGSmYyZ3ZkbWxqYTI5dWJtVnNJaW9pTVN3aWljbVpzWldGelpWOWphR0Z1Ym1Wc0lqb2lZVzVreW05cFpDSXNJaUpyWld4bFlYTmxYMlpsY25OcGJjSXRhbTlrWlZOM0lpd2laWGh3SWpveE56YzNNamt6T1RBNGZRLm9Qa185X2pJQ2lydDZsS2ZFcVhReDBITENhVGRqMTNGSDBwMlhKQlo5ZGtI4uEgUiBodHRwczovL2F1dGhzcnYxLmFuZHJvaWRzcnZzLmNvbXogIBKCCV1jc292ZXJzZWEuc3Ryb25naG9sZC5mcmVlZmlyZW1vYmlsZS5jb207MzQuMTI2Ljc2LjQ1OzM0Ljg3LjE3Ny4xNDszNC44Ny4xNzAuMjMwOzM1LjE4NS4xODMuNTfopyDCz88fsqAgALEv6Z76vvdnICAgJDggIFIgurAgIKAgmpog7u13eiAwJFAnIEAAQA==`;
 
@@ -21,36 +21,53 @@ const binaryTemplate = Buffer.from(BASE64_TEMPLATE, 'base64');
 console.log(`✅ Loaded binary template (${binaryTemplate.length} bytes)`);
 
 // ─────────────────────────────────────────────────────────
-// Robust JWT extraction from binary (scan for "eyJ")
+// Scan raw buffer for "eyJ" (bytes 0x65, 0x79, 0x4a)
+// Then extract JWT by counting dots until we have 3 parts.
 // ─────────────────────────────────────────────────────────
 function extractJwtFromBinary(bin) {
-    // Convert to a string but only search for ASCII range
-    const str = bin.toString('binary');
-    const start = str.indexOf('eyJ');
-    if (start === -1) return null;
-    // Find the end: JWT ends with three dots, last dot position
-    let end = start;
-    let dotCount = 0;
-    for (let i = start; i < str.length && dotCount < 3; i++) {
-        if (str[i] === '.') dotCount++;
-        end = i;
+    // Look for the byte sequence 'e','y','J'
+    for (let i = 0; i < bin.length - 2; i++) {
+        if (bin[i] === 0x65 && bin[i+1] === 0x79 && bin[i+2] === 0x4a) {
+            let start = i;
+            let dotCount = 0;
+            let end = start;
+            for (let j = start; j < bin.length && dotCount < 3; j++) {
+                if (bin[j] === 0x2e) dotCount++; // 0x2e = '.'
+                end = j;
+            }
+            if (dotCount === 3) {
+                // Extract the JWT as a string from the buffer slice
+                const jwtBuffer = bin.slice(start, end + 1);
+                return jwtBuffer.toString('utf8');
+            }
+        }
     }
-    if (dotCount < 3) return null;
-    // Extract the JWT substring (including the three dots)
-    const jwt = str.substring(start, end + 1);
-    // Validate it's a proper JWT (three parts)
-    const parts = jwt.split('.');
-    if (parts.length !== 3) return null;
-    return jwt;
+    return null;
 }
 
-// Helper: replace JWT in binary (using direct string replacement on binary string)
+// Replace JWT in binary (using buffer search and replace)
 function replaceJwtInBinary(bin, newJwt) {
     const oldJwt = extractJwtFromBinary(bin);
     if (!oldJwt) throw new Error('No JWT found in template');
-    const binStr = bin.toString('binary');
-    const newBinStr = binStr.replace(oldJwt, newJwt);
-    return Buffer.from(newBinStr, 'binary');
+    // Convert buffer to a Buffer that we can manipulate
+    // We'll replace the old JWT substring with newJwt
+    const oldBuffer = Buffer.from(oldJwt, 'utf8');
+    const newBuffer = Buffer.from(newJwt, 'utf8');
+    // Find the index of old JWT in the binary
+    let index = -1;
+    for (let i = 0; i <= bin.length - oldBuffer.length; i++) {
+        if (bin.slice(i, i + oldBuffer.length).equals(oldBuffer)) {
+            index = i;
+            break;
+        }
+    }
+    if (index === -1) throw new Error('Could not locate JWT in binary');
+    // Create new buffer by replacing the slice
+    const newBin = Buffer.alloc(bin.length - oldBuffer.length + newBuffer.length);
+    bin.copy(newBin, 0, 0, index);
+    newBuffer.copy(newBin, index);
+    bin.copy(newBin, index + newBuffer.length, index + oldBuffer.length);
+    return newBin;
 }
 
 // Build login response with custom payload
@@ -59,7 +76,6 @@ function buildLoginResponse(customPayload) {
     if (!oldJwt) throw new Error('Template missing JWT');
     const [headerB64, oldPayloadB64, signatureB64] = oldJwt.split('.');
     
-    // Decode old payload to preserve unknown fields
     let oldPayload = {};
     try {
         const oldPayloadJson = Buffer.from(oldPayloadB64, 'base64url').toString('utf8');
@@ -68,22 +84,17 @@ function buildLoginResponse(customPayload) {
         console.warn('Could not parse old payload, using empty');
     }
     
-    // Merge custom fields (overwrites old values)
     const newPayload = { ...oldPayload, ...customPayload };
-    // Force core_url to your IP
     newPayload.core_url = MY_IP;
-    // Set expiration far in future (10 years)
     newPayload.exp = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 3600;
     
-    // Encode new payload
     const newPayloadB64 = Buffer.from(JSON.stringify(newPayload)).toString('base64url');
     const newJwt = `${headerB64}.${newPayloadB64}.${signatureB64}`;
-    // Replace in binary and return
     return replaceJwtInBinary(binaryTemplate, newJwt);
 }
 
 // ─────────────────────────────────────────────────────────
-// SSL Certificates (Let's Encrypt)
+// SSL Certificates
 // ─────────────────────────────────────────────────────────
 let sslOptions;
 try {
@@ -102,7 +113,7 @@ app.use(express.urlencoded({ extended: true }));
 app.disable('etag');
 
 // ─────────────────────────────────────────────────────────
-// 1. /ver.php – full version config (code:0, your URLs)
+// /ver.php
 // ─────────────────────────────────────────────────────────
 app.get('/ver.php', (req, res) => {
     console.log(`\n[VER.PHP] from ${req.ip}`);
@@ -143,20 +154,17 @@ app.get('/ver.php', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 2. /MajorLogin – dynamically built binary using template
+// /MajorLogin
 // ─────────────────────────────────────────────────────────
 app.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MajorLogin] from ${req.ip}`);
     
-    // =====================================================
-    // EDIT THESE VALUES TO CHANGE PLAYER DATA
-    // =====================================================
+    // EDIT YOUR CUSTOM PLAYER DATA HERE
     const customPayload = {
-        account_id: 123456789,           // change to any number
-        nickname: "MyServer",            // custom nickname
-        session_key: "ff_emulator_" + Date.now(),
+        account_id: 123456789,
+        nickname: "MyServerEmu",
+        session_key: "emu_" + Date.now(),
     };
-    // =====================================================
     
     try {
         const loginBinary = buildLoginResponse(customPayload);
@@ -170,14 +178,14 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 3. /Ping – keep‑alive
+// /Ping
 // ─────────────────────────────────────────────────────────
 app.post('/Ping', (req, res) => {
     console.log(`📡 [Ping]`);
     res.status(200).send("OK");
 });
 
-// 4. Catch‑all (Express 5 compatible)
+// Catch-all
 app.all('/*splat', (req, res) => {
     if (['/ver.php', '/MajorLogin', '/Ping'].includes(req.path)) return;
     console.log(`🔎 [OTHER] ${req.method} ${req.path}`);
@@ -185,7 +193,7 @@ app.all('/*splat', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 5. TCP Core Server (port 7006)
+// TCP Core
 // ─────────────────────────────────────────────────────────
 const tcpServer = net.createServer((socket) => {
     const addr = socket.remoteAddress;
@@ -200,9 +208,7 @@ tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
     console.log(`🚀 TCP Core listening on port ${TCP_PORT}`);
 });
 
-// ─────────────────────────────────────────────────────────
-// 6. Start HTTP & HTTPS servers
-// ─────────────────────────────────────────────────────────
+// Start servers
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => {
     console.log(`🌐 HTTP server on port ${HTTP_PORT}`);
 });
@@ -212,5 +218,4 @@ https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
 
 console.log(`\n🚀 100% INDEPENDENT FREE FIRE EMULATOR`);
 console.log(`🔗 Base URL: ${MY_URL_HTTPS}`);
-console.log(`🎮 /MajorLogin generates custom binary (no external file needed)`);
-console.log(`✨ To change player data, edit the customPayload object inside app.post('/MajorLogin')\n`);
+console.log(`🎮 /MajorLogin generates custom binary (buffer scanning)`);
