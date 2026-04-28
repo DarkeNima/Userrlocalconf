@@ -26,15 +26,18 @@ try {
 }
 
 // ─────────────────────────────────────────────────────────
-// Create a proxy instance for API endpoints (MajorLogin, Ping, etc.)
+// Create a proxy instance with selfHandleResponse = true
+// so we can log the response body without breaking the stream
 // ─────────────────────────────────────────────────────────
 const apiProxy = httpProxy.createProxyServer({
     target: TARGET_API,
     changeOrigin: true,
-    secure: false,            // ignore self-signed cert on target
+    secure: false,
     followRedirects: false,
+    selfHandleResponse: true   // <-- allows us to manually forward the response
 });
 
+// Handle proxy errors
 apiProxy.on('error', (err, req, res) => {
     console.error(`❌ Proxy error for ${req.method} ${req.url}:`, err.message);
     if (!res.headersSent) {
@@ -43,53 +46,83 @@ apiProxy.on('error', (err, req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
+// Intercept the response from the target server
+// ─────────────────────────────────────────────────────────
+apiProxy.on('proxyRes', (proxyRes, req, res) => {
+    // Buffer all chunks from the target server
+    const chunks = [];
+    proxyRes.on('data', (chunk) => {
+        chunks.push(chunk);
+    });
+
+    proxyRes.on('end', () => {
+        const fullBuffer = Buffer.concat(chunks);
+        const contentType = proxyRes.headers['content-type'] || '';
+
+        // Log response for important endpoints
+        if (req.url.includes('MajorLogin') || req.url.includes('Ping') || req.url.includes('login')) {
+            console.log(`\n📡 [TARGET RESPONSE] ${req.method} ${req.url} - Status: ${proxyRes.statusCode}`);
+            console.log(`📋 Response Headers:`, JSON.stringify(proxyRes.headers, null, 2));
+
+            // Try to decode as UTF-8 (assuming JSON or text)
+            let bodyText = '(binary data)';
+            if (contentType.includes('application/json') || contentType.includes('text/')) {
+                bodyText = fullBuffer.toString('utf8');
+                try {
+                    // Pretty-print JSON if possible
+                    const json = JSON.parse(bodyText);
+                    bodyText = JSON.stringify(json, null, 2);
+                } catch (e) {
+                    // Not JSON, keep as is
+                }
+            }
+            console.log(`📨 Response Body:\n${bodyText.substring(0, 3000)}${bodyText.length > 3000 ? '\n... (truncated)' : ''}`);
+        }
+
+        // Forward the original status code and headers to the game client
+        res.status(proxyRes.statusCode);
+        Object.entries(proxyRes.headers).forEach(([key, value]) => {
+            // Skip content-length because we'll let Express set it
+            if (key.toLowerCase() !== 'content-length') {
+                res.setHeader(key, value);
+            }
+        });
+        // Send the exact buffer to the client
+        res.send(fullBuffer);
+    });
+});
+
+// ─────────────────────────────────────────────────────────
 // 1. /ver.php – fetch, decompress, rewrite URLs, send uncompressed
 // ─────────────────────────────────────────────────────────
 app.get('/ver.php', async (req, res) => {
     console.log(`\n🔧 [VER.PHP] Fetching and rewriting...`);
     try {
-        // Use axios with arraybuffer – it auto-decompresses gzip/deflate
         const response = await axios({
             method: 'GET',
             url: `${TARGET_VER_PHP}/ver.php`,
-            params: req.query,               // forward query parameters
+            params: req.query,
             headers: {
-                // Forward most headers except host
                 ...req.headers,
                 host: new URL(TARGET_VER_PHP).host,
-                // Remove accept-encoding to let axios handle decompression
-                'accept-encoding': undefined
+                'accept-encoding': undefined  // let axios decompress
             },
             responseType: 'arraybuffer',
             validateStatus: () => true
         });
 
-        // Convert decompressed buffer to string (UTF-8)
         let bodyString = Buffer.from(response.data).toString('utf8');
-        
-        // Replace domain names (keep https://)
         bodyString = bodyString.replace(/version\.astutech\.online/g, MY_DOMAIN);
         bodyString = bodyString.replace(/srv0010\.astutech\.online/g, MY_DOMAIN);
         
         console.log(`✅ Rewritten: version.astutech.online / srv0010 → https://${MY_DOMAIN}`);
 
-        // Prepare response headers – remove content-encoding (we send uncompressed)
         const responseHeaders = { ...response.headers };
-        delete responseHeaders['content-encoding'];   // we're sending plain text
-        delete responseHeaders['content-length'];     // will be recalculated
+        delete responseHeaders['content-encoding'];
+        delete responseHeaders['content-length'];
         
-        // Set correct content-type (should be application/json or text/plain)
-        // Preserve original content-type if present
-        if (responseHeaders['content-type']) {
-            res.setHeader('Content-Type', responseHeaders['content-type']);
-        } else {
-            res.setHeader('Content-Type', 'application/json');
-        }
-        
-        // Forward other relevant headers (optional)
+        res.setHeader('Content-Type', responseHeaders['content-type'] || 'application/json');
         res.setHeader('Cache-Control', responseHeaders['cache-control'] || 'no-cache');
-        
-        // Send the modified body as UTF-8 text
         res.status(response.status);
         res.send(bodyString);
         console.log(`✅ /ver.php rewritten and sent (${bodyString.length} bytes, uncompressed).`);
@@ -100,16 +133,16 @@ app.get('/ver.php', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 2. Catch‑all: proxy everything else (MajorLogin, Ping, etc.)
-//    This uses http-proxy which preserves raw binary and headers
+// 2. Catch‑all: proxy everything else to apiProxy
 // ─────────────────────────────────────────────────────────
 app.use((req, res) => {
     if (req.path === '/ver.php') return;
+    // Pass the request to our custom proxy handler (selfHandleResponse)
     apiProxy.web(req, res);
 });
 
 // ─────────────────────────────────────────────────────────
-// 3. Create HTTP (80) and HTTPS (443) servers
+// 3. Create HTTP and HTTPS servers
 // ─────────────────────────────────────────────────────────
 http.createServer(app).listen(80, '0.0.0.0', () => {
     console.log(`🌐 HTTP proxy listening on port 80`);
