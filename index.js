@@ -197,6 +197,9 @@ app.get('/ver.php', (req, res) => {
 // ─────────────────────────────────────────────────────────
 // /MajorLogin – serve length‑preserved patched binary
 // ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+// /MajorLogin – serve length‑preserved patched binary
+// ─────────────────────────────────────────────────────────
 app.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MajorLogin] from ${req.ip}`);
     
@@ -214,17 +217,9 @@ app.post('/MajorLogin', (req, res) => {
     }
 });
 
-    
-    try {
-        const patchedBinary = patchLoginBinary(customPayload);
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.status(200).send(patchedBinary);
-        console.log(`✅ Sent patched binary (${patchedBinary.length} bytes) for account ${customPayload.account_id}`);
-    } catch (err) {
-        console.error(`❌ Patching error:`, err.message);
-        res.status(500).send('Internal server error');
-    }
-});
+// ඊළඟට Ping එක එහෙමම තියෙන්න දෙන්න
+
+
 
 app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
 
