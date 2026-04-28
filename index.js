@@ -3,6 +3,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const httpProxy = require('http-proxy');
+const axios = require('axios');
 
 const app = express();
 const MY_DOMAIN = 'navidu-ff.duckdns.org';
@@ -25,28 +26,15 @@ try {
 }
 
 // ─────────────────────────────────────────────────────────
-// Create a proxy instance that forwards to TARGET_API
+// Create a proxy instance for API endpoints (MajorLogin, Ping, etc.)
 // ─────────────────────────────────────────────────────────
 const apiProxy = httpProxy.createProxyServer({
     target: TARGET_API,
-    changeOrigin: true,       // changes the Host header to match target
-    secure: false,            // ignore self‑signed cert on target (if any)
+    changeOrigin: true,
+    secure: false,            // ignore self-signed cert on target
     followRedirects: false,
-    // Do NOT buffer the request – stream it directly
-    proxyReqOptDecorator: (proxyReqOpts, originalReq) => {
-        // Preserve all original headers (http-proxy already does, but we can add logging)
-        console.log(`🔄 [PROXY] ${originalReq.method} ${originalReq.url} → ${TARGET_API}${originalReq.url}`);
-        console.log(`📋 Forwarding headers:`, JSON.stringify(originalReq.headers, null, 2));
-        return proxyReqOpts;
-    },
-    // Log errors
-    proxyResDecorator: (proxyRes, originalReq, originalRes) => {
-        console.log(`📡 Target response status: ${proxyRes.statusCode} for ${originalReq.method} ${originalReq.url}`);
-        return proxyRes;
-    }
 });
 
-// Handle proxy errors (don't crash)
 apiProxy.on('error', (err, req, res) => {
     console.error(`❌ Proxy error for ${req.method} ${req.url}:`, err.message);
     if (!res.headersSent) {
@@ -55,49 +43,68 @@ apiProxy.on('error', (err, req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 1. /ver.php – rewrite server_url to your HTTPS domain
+// 1. /ver.php – fetch, decompress, rewrite URLs, send uncompressed
 // ─────────────────────────────────────────────────────────
 app.get('/ver.php', async (req, res) => {
-    console.log(`🔧 [VER.PHP] Rewriting domains...`);
-
-    // Forward the request to TARGET_VER_PHP manually (we need to modify the response)
-    const targetUrl = `${TARGET_VER_PHP}/ver.php?${new URLSearchParams(req.query).toString()}`;
-    const requestOptions = {
-        method: 'GET',
-        headers: { ...req.headers, host: new URL(TARGET_VER_PHP).host },
-    };
-
-    const proxyReq = https.request(targetUrl, requestOptions, (proxyRes) => {
-        let data = '';
-        proxyRes.on('data', chunk => { data += chunk; });
-        proxyRes.on('end', () => {
-            // Replace domains (keep https://)
-            let modified = data.replace(/version\.astutech\.online/g, MY_DOMAIN)
-                               .replace(/srv0010\.astutech\.online/g, MY_DOMAIN);
-            // However, the client expects https://, so we leave the scheme as is
-            res.status(proxyRes.statusCode);
-            Object.entries(proxyRes.headers).forEach(([k, v]) => {
-                if (k.toLowerCase() !== 'content-length') res.setHeader(k, v);
-            });
-            res.send(modified);
-            console.log(`✅ /ver.php rewritten and sent.`);
+    console.log(`\n🔧 [VER.PHP] Fetching and rewriting...`);
+    try {
+        // Use axios with arraybuffer – it auto-decompresses gzip/deflate
+        const response = await axios({
+            method: 'GET',
+            url: `${TARGET_VER_PHP}/ver.php`,
+            params: req.query,               // forward query parameters
+            headers: {
+                // Forward most headers except host
+                ...req.headers,
+                host: new URL(TARGET_VER_PHP).host,
+                // Remove accept-encoding to let axios handle decompression
+                'accept-encoding': undefined
+            },
+            responseType: 'arraybuffer',
+            validateStatus: () => true
         });
-    });
-    proxyReq.on('error', (err) => {
-        console.error(`❌ /ver.php fetch error:`, err.message);
-        res.status(502).send('Error fetching ver.php');
-    });
-    proxyReq.end();
+
+        // Convert decompressed buffer to string (UTF-8)
+        let bodyString = Buffer.from(response.data).toString('utf8');
+        
+        // Replace domain names (keep https://)
+        bodyString = bodyString.replace(/version\.astutech\.online/g, MY_DOMAIN);
+        bodyString = bodyString.replace(/srv0010\.astutech\.online/g, MY_DOMAIN);
+        
+        console.log(`✅ Rewritten: version.astutech.online / srv0010 → https://${MY_DOMAIN}`);
+
+        // Prepare response headers – remove content-encoding (we send uncompressed)
+        const responseHeaders = { ...response.headers };
+        delete responseHeaders['content-encoding'];   // we're sending plain text
+        delete responseHeaders['content-length'];     // will be recalculated
+        
+        // Set correct content-type (should be application/json or text/plain)
+        // Preserve original content-type if present
+        if (responseHeaders['content-type']) {
+            res.setHeader('Content-Type', responseHeaders['content-type']);
+        } else {
+            res.setHeader('Content-Type', 'application/json');
+        }
+        
+        // Forward other relevant headers (optional)
+        res.setHeader('Cache-Control', responseHeaders['cache-control'] || 'no-cache');
+        
+        // Send the modified body as UTF-8 text
+        res.status(response.status);
+        res.send(bodyString);
+        console.log(`✅ /ver.php rewritten and sent (${bodyString.length} bytes, uncompressed).`);
+    } catch (error) {
+        console.error('❌ /ver.php error:', error.message);
+        res.status(502).send('Failed to fetch version config');
+    }
 });
 
 // ─────────────────────────────────────────────────────────
 // 2. Catch‑all: proxy everything else (MajorLogin, Ping, etc.)
+//    This uses http-proxy which preserves raw binary and headers
 // ─────────────────────────────────────────────────────────
 app.use((req, res) => {
-    // Skip /ver.php (already handled above)
     if (req.path === '/ver.php') return;
-
-    // Let http-proxy handle the request – it streams raw data perfectly
     apiProxy.web(req, res);
 });
 
@@ -114,4 +121,5 @@ https.createServer(sslOptions, app).listen(443, '0.0.0.0', () => {
 
 console.log(`\n🚀 PROXY SERVER FULLY RUNNING on 80 & 443`);
 console.log(`🔗 Client will connect to https://${MY_DOMAIN}`);
-console.log(`📡 Forwarding all API requests to ${TARGET_API}\n`);
+console.log(`📡 Forwarding API requests to ${TARGET_API}`);
+console.log(`📦 /ver.php responses are decompressed, rewritten, and sent uncompressed.\n`);
