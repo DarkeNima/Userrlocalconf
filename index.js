@@ -3,7 +3,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const net = require('net');
-const path = require('path');
+const axios = require('axios');
 
 const app = express();
 const HTTP_PORT = 80;
@@ -12,7 +12,7 @@ const TCP_PORT = 7006;
 const MY_DOMAIN = 'navidu-ff.duckdns.org';
 const MY_IP = '139.162.54.41';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
-const LOGIN_BIN_FILE = path.join(__dirname, 'login_success.bin');
+const TARGET_API = 'https://srv0010.astutech.online';
 
 // SSL certificates
 let sslOptions;
@@ -23,24 +23,36 @@ try {
     };
     console.log('✅ SSL certificates loaded');
 } catch (err) {
-    console.error('❌ Failed to load SSL certificates:', err.message);
+    console.error('❌ SSL error:', err.message);
     process.exit(1);
 }
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Helper to forward headers (remove host & content-length)
+function forwardHeaders(headers) {
+    const h = { ...headers };
+    delete h.host;
+    delete h['content-length'];
+    return h;
+}
+
+// Axios instance for proxying (ignore SSL errors)
+const axiosInstance = axios.create({
+    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+});
+
+// Body parsing for local routes (not needed for proxied ones)
+app.use(express.raw({ type: '*/*', limit: '10mb' }));
 app.disable('etag');
 
 // ─────────────────────────────────────────────────────────
-// 1. /ver.php – COMPLETE JSON with all required fields
+// 1. /ver.php – full static JSON (no expiration issues)
 // ─────────────────────────────────────────────────────────
 app.get('/ver.php', (req, res) => {
     console.log(`\n[VER.PHP] Request from ${req.ip}`);
 
-    // This is the FULL response that Astute returns (with modifications)
     const verData = {
-        "code": 0,                                // CRITICAL: 0 = success
-        "is_server_open": true,                  // CRITICAL: otherwise "maintenance"
+        "code": 0,
+        "is_server_open": true,
         "is_firewall_open": false,
         "cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
         "backup_cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
@@ -69,83 +81,100 @@ app.get('/ver.php', (req, res) => {
         "core_ip_list": [MY_IP, "0.0.0.0"]
     };
 
-    // Update client_ip with the real requester's IP
     let clientIp = req.ip;
     if (clientIp.startsWith('::ffff:')) clientIp = clientIp.substring(7);
     verData.client_ip = clientIp;
 
-    const jsonResponse = JSON.stringify(verData);
     res.setHeader('Content-Type', 'application/json');
-    res.status(200).send(jsonResponse);
-    console.log(`✅ Sent full ver.php (is_server_open:true, server_url:${verData.server_url})`);
+    res.status(200).json(verData);
+    console.log(`✅ Sent ver.php (is_server_open:true)`);
 });
 
 // ─────────────────────────────────────────────────────────
-// 2. /Ping – simple OK response
+// 2. Proxy /MajorLogin to Astute (fresh session every time)
 // ─────────────────────────────────────────────────────────
-app.post('/Ping', (req, res) => {
-    console.log(`📡 [PING]`);
-    res.status(200).send("OK");
-});
-
-// ─────────────────────────────────────────────────────────
-// 3. /MajorLogin – serve saved binary
-// ─────────────────────────────────────────────────────────
-app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MAJOR LOGIN] from ${req.ip}`);
-    if (!fs.existsSync(LOGIN_BIN_FILE)) {
-        console.error(`❌ Missing ${LOGIN_BIN_FILE}`);
-        return res.status(500).send('Login data not available');
-    }
+app.post('/MajorLogin', async (req, res) => {
+    console.log(`\n🎯 [PROXY /MajorLogin] from ${req.ip}`);
     try {
-        const binaryData = fs.readFileSync(LOGIN_BIN_FILE);
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.status(200).send(binaryData);
-        console.log(`✅ Sent login binary (${binaryData.length} bytes)`);
+        const targetUrl = `${TARGET_API}/MajorLogin`;
+        const response = await axiosInstance({
+            method: 'POST',
+            url: targetUrl,
+            headers: forwardHeaders(req.headers),
+            data: req.body,
+            responseType: 'arraybuffer',
+            validateStatus: () => true
+        });
+        res.status(response.status);
+        Object.entries(response.headers).forEach(([k, v]) => {
+            if (k.toLowerCase() !== 'content-length') res.setHeader(k, v);
+        });
+        res.send(response.data);
+        console.log(`✅ Forwarded /MajorLogin (status ${response.status})`);
     } catch (err) {
-        console.error(`❌ Error reading binary:`, err.message);
-        res.status(500).send('Internal error');
+        console.error(`❌ Proxy error:`, err.message);
+        res.status(502).send('Proxy error');
     }
 });
 
 // ─────────────────────────────────────────────────────────
-// 4. Catch-all for unknown routes (Express 5 compatible)
+// 3. Proxy /Ping to Astute (keeps session alive)
+// ─────────────────────────────────────────────────────────
+app.post('/Ping', async (req, res) => {
+    console.log(`📡 [PROXY /Ping]`);
+    try {
+        const targetUrl = `${TARGET_API}/Ping`;
+        const response = await axiosInstance({
+            method: 'POST',
+            url: targetUrl,
+            headers: forwardHeaders(req.headers),
+            data: req.body,
+            responseType: 'arraybuffer',
+            validateStatus: () => true
+        });
+        res.status(response.status);
+        Object.entries(response.headers).forEach(([k, v]) => {
+            if (k.toLowerCase() !== 'content-length') res.setHeader(k, v);
+        });
+        res.send(response.data);
+    } catch (err) {
+        console.error(`❌ Ping proxy error:`, err.message);
+        res.status(502).send('OK'); // fallback
+    }
+});
+
+// ─────────────────────────────────────────────────────────
+// 4. Catch-all (Express 5 compatible)
 // ─────────────────────────────────────────────────────────
 app.all('/*splat', (req, res) => {
     if (['/ver.php', '/MajorLogin', '/Ping'].includes(req.path)) return;
-    console.log(`🔎 [OTHER PATH] ${req.method} ${req.path}`);
+    console.log(`🔎 [OTHER] ${req.method} ${req.path}`);
     res.status(200).send("OK");
 });
 
 // ─────────────────────────────────────────────────────────
-// 5. TCP Core Server (port 7006)
+// 5. TCP Core Listener (port 7006)
 // ─────────────────────────────────────────────────────────
 const tcpServer = net.createServer((socket) => {
-    const clientAddr = socket.remoteAddress;
-    console.log(`\n📡 [TCP CONNECT] ${clientAddr}`);
+    const addr = socket.remoteAddress;
+    console.log(`\n📡 [TCP CONNECT] ${addr}`);
     socket.on('data', (data) => {
-        console.log(`📩 [TCP DATA] ${data.length} bytes from ${clientAddr}`);
-        // TODO: implement game packet handling (for now just log)
+        console.log(`📩 [TCP DATA] ${data.length} bytes from ${addr}`);
     });
     socket.on('error', (err) => console.log(`❌ TCP error: ${err.message}`));
-    socket.on('close', () => console.log(`🔌 TCP closed: ${clientAddr}`));
 });
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
-    console.log(`🚀 TCP Core listening on port ${TCP_PORT}`);
-});
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Core on ${TCP_PORT}`));
 
 // ─────────────────────────────────────────────────────────
-// 6. Start HTTP and HTTPS servers
+// 6. Start HTTP & HTTPS servers
 // ─────────────────────────────────────────────────────────
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => {
-    console.log(`🌐 HTTP server listening on port ${HTTP_PORT}`);
+    console.log(`🌐 HTTP on ${HTTP_PORT}`);
 });
-
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
-    console.log(`🔒 HTTPS server listening on port ${HTTPS_PORT}`);
+    console.log(`🔒 HTTPS on ${HTTPS_PORT}`);
 });
 
-console.log(`\n🚀 INDEPENDENT SERVER FULLY RUNNING`);
-console.log(`🔗 Base URL: ${MY_URL_HTTPS}`);
-console.log(`📦 /MajorLogin reads: ${LOGIN_BIN_FILE}`);
-console.log(`📦 /ver.php returns is_server_open:true, code:0, server_url: ${MY_URL_HTTPS}/`);
+console.log(`\n🚀 SERVER READY`);
+console.log(`🔗 ${MY_URL_HTTPS}`);
+console.log(`📡 /MajorLogin → ${TARGET_API}/MajorLogin (fresh session)`);
