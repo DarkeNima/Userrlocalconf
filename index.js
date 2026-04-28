@@ -14,24 +14,33 @@ const MY_IP = '139.162.54.41';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 
 // ─────────────────────────────────────────────────────────
-// 1. Embedded binary template (999 bytes – exact as captured)
+// 1. Load Original Binary directly from file (No Base64 issues!)
 // ─────────────────────────────────────────────────────────
-const BASE64_TEMPLATE = `CNmE7440EgJTRxoCU0ciAlNHKgRsaXZlQpUGZXlKaGJHY2lPaUpJVXpJMU5pSXNJbk4yY2lJNklqRWlMQ0owZVhBaU9pSktWMVFpZlEuZXlKaFkyTnZkVzUwWDJsa0lqb3hNems0T1RneU16QTJOU3dpYm1samEyNWhiV1VpT2lKbU5GTkNkVTVwVFhjMmNrazRkWFZJTUU5UldFRkJSMGhxWldzOUlpd2libTkwYV9jbVdubHZiaU9pVTBjaUxTMWtiMk5yWTI5dVpXNWxYbkpsWjJsdmJpT2lVMENpTENKbWVYUmxjbTVoYmZocFpDSTZJbUU0TVRaaE56WmxZak00Tnpoak9ESmpOelZtT1RFeE1ERXhZVEUyT0dSbElpd2laWGwwWlhKdVlXeGZkSGx3WlNJNk1URXNJaHBzWVhSMFlXUmZpRE9qTVN3aW1HeGxiVzUwWDIxbGNuTnBiMjVpSWpvaU1TNHhNak11T0N0emRXNWxkbkpsYm5WemRHbHZiaU9pTVN3aW1XMTFiR3gwYjNKMmNteHZiV1VpT2pBd0xDSnBjeFpsYlhWc1lYUnZjbWxmYzJOdmNtVWlPaUptWVd4elpYUnzcpXp6yYmNjU3mYWRjYnpGSmYyZ3ZkbWxqYTI5dWJtVnNJaW9pTVN3aWljbVpzWldGelpWOWphR0Z1Ym1Wc0lqb2lZVzVreW05cFpDSXNJaUpyWld4bFlYTmxYMlpsY25OcGJjSXRhbTlrWlZOM0lpd2laWGh3SWpveE56YzNNamt6T1RBNGZRLm9Qa185X2pJQ2lydDZsS2ZFcVhReDBITENhVGRqMTNGSDBwMlhKQlo5ZGtI4uEgUiBodHRwczovL2F1dGhzcnYxLmFuZHJvaWRzcnZzLmNvbXogIBKCCV1jc292ZXJzZWEuc3Ryb25naG9sZC5mcmVlZmlyZW1vYmlsZS5jb207MzQuMTI2Ljc2LjQ1OzM0Ljg3LjE3Ny4xNDszNC44Ny4xNzAuMjMwOzM1LjE4NS4xODMuNTfopyDCz88fsqAgALEv6Z76+2d/EhwkOAAAUgG6ARCAF5qQ+u13ehUwJFAFAEAC`;
+const LOGIN_BIN_FILE = path.join(__dirname, 'login_success.bin');
 
-let originalBinary = Buffer.from(BASE64_TEMPLATE, 'base64');
-console.log(`✅ Loaded original binary (${originalBinary.length} bytes)`);
+if (!fs.existsSync(LOGIN_BIN_FILE)) {
+    console.error(`❌ ERROR: Cannot find ${LOGIN_BIN_FILE}! Please put the file in the same folder.`);
+    process.exit(1);
+}
+
+let originalBinary = fs.readFileSync(LOGIN_BIN_FILE);
+console.log(`✅ Loaded original binary from file (${originalBinary.length} bytes)`);
+
+if (originalBinary.length !== 999) {
+    console.warn(`⚠️ WARNING: Your login_success.bin is ${originalBinary.length} bytes, not 999!`);
+}
 
 // ─────────────────────────────────────────────────────────
 // Helper: extract JWT and its start/end indices
 // ─────────────────────────────────────────────────────────
 function extractJwtWithPosition(bin) {
     for (let i = 0; i < bin.length - 2; i++) {
-        if (bin[i] === 0x65 && bin[i+1] === 0x79 && bin[i+2] === 0x4a) {
+        if (bin[i] === 0x65 && bin[i+1] === 0x79 && bin[i+2] === 0x4a) { // "eyJ"
             let start = i;
             let dotCount = 0;
             let end = start;
             for (let j = start; j < bin.length && dotCount < 3; j++) {
-                if (bin[j] === 0x2e) dotCount++;
+                if (bin[j] === 0x2e) dotCount++; // "."
                 end = j;
             }
             if (dotCount === 3) {
@@ -48,18 +57,15 @@ function extractJwtWithPosition(bin) {
 
 // ─────────────────────────────────────────────────────────
 // Patch binary: replace specific fields in the JWT payload
-// while keeping the overall binary length unchanged.
-// We'll directly edit the base64url‑encoded payload string.
 // ─────────────────────────────────────────────────────────
 function patchLoginBinary(customPayload) {
     const info = extractJwtWithPosition(originalBinary);
-    if (!info) throw new Error('JWT not found in template');
+    if (!info) throw new Error('JWT not found in template. Make sure login_success.bin is correct.');
     const { start, end, jwt } = info;
     const parts = jwt.split('.');
     if (parts.length !== 3) throw new Error('Invalid JWT structure');
     const [header, oldPayloadB64, signature] = parts;
     
-    // Decode old payload as UTF-8 string
     let oldPayloadStr = Buffer.from(oldPayloadB64, 'base64url').toString('utf8');
     let oldPayload;
     try {
@@ -68,38 +74,28 @@ function patchLoginBinary(customPayload) {
         oldPayload = {};
     }
     
-    // Merge custom fields
     const newPayload = { ...oldPayload, ...customPayload };
-    // Force core_url to your IP
     newPayload.core_url = MY_IP;
-    // Ensure expiration is far in future (10 years)
     newPayload.exp = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 3600;
     
-    // Generate new payload JSON string (compact, no spaces)
     let newPayloadStr = JSON.stringify(newPayload);
     let oldPayloadLen = oldPayloadStr.length;
     let newPayloadLen = newPayloadStr.length;
     
-    // Adjust length to match original by padding with spaces or null bytes
     if (newPayloadLen < oldPayloadLen) {
-        // Pad with spaces inside the JSON string (e.g., after colons or at end)
-        // We'll add spaces before the closing brace.
         const padCount = oldPayloadLen - newPayloadLen;
         newPayloadStr = newPayloadStr.slice(0, -1) + ' '.repeat(padCount) + '}';
     } else if (newPayloadLen > oldPayloadLen) {
-        // Truncate (or throw error) – you can adjust your custom fields
         console.warn(`New payload too long (${newPayloadLen} > ${oldPayloadLen}), truncating.`);
         newPayloadStr = newPayloadStr.slice(0, oldPayloadLen);
     }
     
-    // Re‑encode as base64url
     const newPayloadB64 = Buffer.from(newPayloadStr, 'utf8').toString('base64url');
     const newJwt = `${header}.${newPayloadB64}.${signature}`;
     const newJwtBuffer = Buffer.from(newJwt, 'utf8');
     
-    // Replace JWT in original binary (should be same length)
     if (newJwtBuffer.length !== (end - start + 1)) {
-        throw new Error(`JWT length mismatch: original ${end-start+1}, new ${newJwtBuffer.length}`);
+        throw new Error(`JWT length mismatch!`);
     }
     const patched = Buffer.alloc(originalBinary.length);
     originalBinary.copy(patched, 0, 0, start);
@@ -174,13 +170,13 @@ app.get('/ver.php', (req, res) => {
 // ─────────────────────────────────────────────────────────
 app.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MajorLogin] from ${req.ip}`);
-    // ========= EDIT YOUR CUSTOM DATA HERE =========
+    
+    // උඹට ඕන ID එකයි නමයි මෙතනින් වෙනස් කරගනින්
     const customPayload = {
-        account_id: 123456789,         // any integer
-        nickname: "MyEmu",             // keep short (will be padded with spaces)
-        // session_key not needed – keep original
+        account_id: 123456789,         
+        nickname: "NaviduEmu",             
     };
-    // =============================================
+    
     try {
         const patchedBinary = patchLoginBinary(customPayload);
         res.setHeader('Content-Type', 'application/octet-stream');
@@ -192,38 +188,19 @@ app.post('/MajorLogin', (req, res) => {
     }
 });
 
-// ─────────────────────────────────────────────────────────
-// /Ping
-// ─────────────────────────────────────────────────────────
-app.post('/Ping', (req, res) => {
-    console.log(`📡 [Ping]`);
-    res.status(200).send("OK");
-});
+app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
 
-// Catch‑all
 app.all('/*splat', (req, res) => {
     if (['/ver.php', '/MajorLogin', '/Ping'].includes(req.path)) return;
-    console.log(`🔎 [OTHER] ${req.method} ${req.path}`);
     res.status(200).send("OK");
 });
 
-// ─────────────────────────────────────────────────────────
-// TCP Core
-// ─────────────────────────────────────────────────────────
-const tcpServer = net.createServer((socket) => {
-    const addr = socket.remoteAddress;
-    console.log(`\n📡 [TCP CONNECT] ${addr}`);
-    socket.on('data', (data) => {
-        console.log(`📩 [TCP DATA] ${data.length} bytes from ${addr}`);
-    });
-    socket.on('error', (err) => console.log(`❌ TCP error: ${err.message}`));
-});
+const tcpServer = net.createServer((socket) => {});
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Core on ${TCP_PORT}`));
 
-// Start servers
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
 
 console.log(`\n🚀 LENGTH‑PRESERVING PATCHER ACTIVE`);
 console.log(`🔗 ${MY_URL_HTTPS}`);
-console.log(`📦 /MajorLogin always returns exactly 999 bytes (original length)`);
+console.log(`📦 /MajorLogin reads from file and returns exact length`);
