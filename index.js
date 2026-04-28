@@ -14,9 +14,7 @@ const MY_IP = '139.162.54.41';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 const LOGIN_BIN_FILE = path.join(__dirname, 'login_success.bin');
 
-// ─────────────────────────────────────────────────────────
-// SSL certificates (Let's Encrypt)
-// ─────────────────────────────────────────────────────────
+// SSL certificates
 let sslOptions;
 try {
     sslOptions = {
@@ -29,56 +27,49 @@ try {
     process.exit(1);
 }
 
-// ─────────────────────────────────────────────────────────
-// Middleware
-// ─────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.disable('etag');
 
 // ─────────────────────────────────────────────────────────
-// 1. /ver.php – dynamic JSON with required modifications
+// 1. /ver.php – COMPLETE JSON with all required fields
 // ─────────────────────────────────────────────────────────
 app.get('/ver.php', (req, res) => {
     console.log(`\n[VER.PHP] Request from ${req.ip}`);
 
-    // ... (the verData object remains exactly as you've defined it) ...
+    // This is the FULL response that Astute returns (with modifications)
     const verData = {
-        "code": 2,
-        "use_login_optional_download": false,
+        "code": 0,                                // CRITICAL: 0 = success
+        "is_server_open": true,                  // CRITICAL: otherwise "maintenance"
+        "is_firewall_open": false,
+        "cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
+        "backup_cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
+        "abhotupdate_cdn_url": "https://core-tata.freefireind.in/live/ABHotUpdates/",
+        "img_cdn_url": "https://dl-tata.freefireind.in/common/",
+        "login_download_optionalpack": "optionalclothres:shaders|optionalpetres:optionalpetres_commonab_shader|optionallobbyres:",
+        "need_track_hotupdate": true,
+        "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
+        "latest_release_version": "OB53",
+        "min_hint_size": 1,
+        "space_required_in_GB": 1.48,
+        "should_check_ab_load": false,
+        "force_refresh_restype": "optionalavatarres",
+        "remote_version": "1.123.8",
+        "server_url": `${MY_URL_HTTPS}/`,
+        "is_review_server": false,
+        "use_login_optional_download": true,
         "use_background_download": false,
         "use_background_download_lobby": false,
         "country_code": "SG",
-        "client_ip": "15.235.211.216",
+        "client_ip": "0.0.0.0",
         "gdpr_version": 0,
-        "billboard_cdn_url": "",
-        "billboard_msg": "",
-        "web_url": "",
-        "billboard_bg_url": "",
-        "max_store": "",
-        "max_web": "",
-        "max_video": "",
-        "patchnote_url": "",
-        "multi_region": "",
-        "appstore_url": "http://www.freefiremobile.com/",
-        "backup_appstore_url": "",
-        "garena_login": false,
-        "garena_hint": false,
-        "gop_url": "",
-        "gamevar": "var_name,comment,var_type,var_value\nvar_name,comment,\"var_type float, int, bool\",var_value\nANODisabledRegions,\u5173\u95edMTP\u7684\u5730\u533a,string,\"IND,NA\"\nANODisabledClientVariant,ANODisabledClientVariant,string,\"ClientUsingVersion_MAX_HPE,ClientUsingVersion_FFI,ClientUsingVersion_MAX|IND,ClientUsingVersion_MAX|NA,ClientUsingVersion_NORMAL|NA\"\nEnableMtpLiteDataRegion,mtp\u8f7b\u7279\u5f81\u5f00\u5173,string,\"BR,EUROPE,ID,ME,US,RU,SAC,SG,TH,TW,VN,PK,ZA,BD\"\nANOEmulatorCheckDisbaledClientVariant,ANOEmulatorCheckDisbaledClientVariant,string,\"ClientUsingVersion_FFI,ClientUsingVersion_MAX,ClientUsingVersion_NORMAL\"\nForceTutorial_ChangeHudABTest,fps\u6d41\u7a0b\u4e2d\u6253\u5f00hud\u9009\u62e9\u754c\u9762\u7684\u6982\u7387,float,-1\n",
-        "device_whitelist_version": "1.5.0",
-        "whitelist_mask": 0,
-        "device_whitelist_sp_version": "1.0.0",
-        "whitelist_sp_mask": 0,
-        "ggp_url": "gin.freefiremobile.com"
+        "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf102.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf103.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf104.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf105.ff_extend",
+        "ggp_url": MY_IP,
+        "core_url": MY_IP,
+        "core_ip_list": [MY_IP, "0.0.0.0"]
     };
 
-    // Apply required modifications
-    verData.code = 0;
-    verData.server_url = `${MY_URL_HTTPS}/`;
-    verData.core_url = MY_IP;
-    verData.ggp_url = MY_IP;
-    // Update client_ip to the real requester's IP
+    // Update client_ip with the real requester's IP
     let clientIp = req.ip;
     if (clientIp.startsWith('::ffff:')) clientIp = clientIp.substring(7);
     verData.client_ip = clientIp;
@@ -86,14 +77,14 @@ app.get('/ver.php', (req, res) => {
     const jsonResponse = JSON.stringify(verData);
     res.setHeader('Content-Type', 'application/json');
     res.status(200).send(jsonResponse);
-    // console.log(`✅ Sent ver.php (code:0, server_url:${verData.server_url})`);
+    console.log(`✅ Sent full ver.php (is_server_open:true, server_url:${verData.server_url})`);
 });
 
 // ─────────────────────────────────────────────────────────
 // 2. /Ping – simple OK response
 // ─────────────────────────────────────────────────────────
 app.post('/Ping', (req, res) => {
-    // console.log(`📡 [PING]`);
+    console.log(`📡 [PING]`);
     res.status(200).send("OK");
 });
 
@@ -118,10 +109,7 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 4. !!! THIS IS THE CRITICAL FIX !!!
-// Catch-all routes require a named parameter in Express 5.
-// The line has been changed from: app.all('*', ...) to: app.all('/*splat', ...)
-// You can name the parameter anything.
+// 4. Catch-all for unknown routes (Express 5 compatible)
 // ─────────────────────────────────────────────────────────
 app.all('/*splat', (req, res) => {
     if (['/ver.php', '/MajorLogin', '/Ping'].includes(req.path)) return;
@@ -137,15 +125,10 @@ const tcpServer = net.createServer((socket) => {
     console.log(`\n📡 [TCP CONNECT] ${clientAddr}`);
     socket.on('data', (data) => {
         console.log(`📩 [TCP DATA] ${data.length} bytes from ${clientAddr}`);
-        // For full independence, implement game packet handling here
-        // Currently just logs and discards
+        // TODO: implement game packet handling (for now just log)
     });
-    socket.on('error', (err) => {
-        console.log(`❌ TCP error from ${clientAddr}: ${err.message}`);
-    });
-    socket.on('close', () => {
-        console.log(`🔌 TCP connection closed: ${clientAddr}`);
-    });
+    socket.on('error', (err) => console.log(`❌ TCP error: ${err.message}`));
+    socket.on('close', () => console.log(`🔌 TCP closed: ${clientAddr}`));
 });
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
     console.log(`🚀 TCP Core listening on port ${TCP_PORT}`);
@@ -165,4 +148,4 @@ https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
 console.log(`\n🚀 INDEPENDENT SERVER FULLY RUNNING`);
 console.log(`🔗 Base URL: ${MY_URL_HTTPS}`);
 console.log(`📦 /MajorLogin reads: ${LOGIN_BIN_FILE}`);
-console.log(`📦 /ver.php returns code:0, server_url: ${MY_URL_HTTPS}/`);
+console.log(`📦 /ver.php returns is_server_open:true, code:0, server_url: ${MY_URL_HTTPS}/`);
