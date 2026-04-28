@@ -1,80 +1,158 @@
 const express = require('express');
+const http = require('http');
+const https = require('https');
 const fs = require('fs');
-const path = require('path');
+const httpProxy = require('http-proxy');
+const axios = require('axios');
+
 const app = express();
+const MY_DOMAIN = 'navidu-ff.duckdns.org';
+const TARGET_VER_PHP = 'https://version.astutech.online';
+const TARGET_API = 'https://srv0010.astutech.online';
 
-const PORT = 80;
-const MY_IP = "139.162.54.41"; // ඔයාගේ VPS IP එක
-const MY_URL = `http://navidu-ff.duckdns.org`;
-const BINARY_FILE = path.join(__dirname, 'login_success.bin');
-
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-app.disable('etag');
-
-// 1. Version API - අර "Config 2" Error එක එන්නේ නැති වෙන්න මේක හදලා තියෙන්නේ
-app.get('/ver.php', (req, res) => {
-    console.log(`\n[!] VER.PHP REQUEST RECEIVED`);
-    
-    // ඔයා එවපු අලුත්ම Astutech Response එක
-    const responseData = {
-        "code": 2,
-        "use_login_optional_download": false,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
-        "country_code": "SG",
-        "client_ip": req.ip.replace('::ffff:', ''),
-        "gdpr_version": 0,
-        "billboard_cdn_url": "",
-        "billboard_msg": "",
-        "web_url": "",
-        "billboard_bg_url": "",
-        "max_store": "",
-        "max_web": "",
-        "max_video": "",
-        "patchnote_url": "",
-        "multi_region": "",
-        "appstore_url": "http://www.freefiremobile.com/",
-        "backup_appstore_url": "",
-        "garena_login": false,
-        "garena_hint": false,
-        "gop_url": "",
-        "gamevar": "var_name,comment,var_type,var_value\nvar_name,comment,\"var_type float, int, bool\",var_value\nANODisabledRegions,string,\"IND,NA\"\nANODisabledClientVariant,string,\"ClientUsingVersion_MAX_HPE,ClientUsingVersion_FFI,ClientUsingVersion_MAX|IND,ClientUsingVersion_MAX|NA,ClientUsingVersion_NORMAL|NA\"\nEnableMtpLiteDataRegion,string,\"BR,EUROPE,ID,ME,US,RU,SAC,SG,TH,TW,VN,PK,ZA,BD\"\nANOEmulatorCheckDisbaledClientVariant,string,\"ClientUsingVersion_FFI,ClientUsingVersion_MAX,ClientUsingVersion_NORMAL\"\nForceTutorial_ChangeHudABTest,float,-1\n",
-        "device_whitelist_version": "1.5.0",
-        "whitelist_mask": 0,
-        "device_whitelist_sp_version": "1.0.0",
-        "whitelist_sp_mask": 0,
-        "ggp_url": "gin.freefiremobile.com",
-        "server_url": `${MY_URL}/`, // ඊළඟට MajorLogin එක මෙහාට එන්න මේක ඕනේ
-        "core_url": MY_IP,
-        "core_ip_list": [MY_IP, "0.0.0.0"]
+// ─────────────────────────────────────────────────────────
+// SSL Certificates (Let's Encrypt)
+// ─────────────────────────────────────────────────────────
+let sslOptions;
+try {
+    sslOptions = {
+        key: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/privkey.pem`),
+        cert: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/fullchain.pem`)
     };
+    console.log('✅ SSL certificates loaded successfully');
+} catch (err) {
+    console.error('❌ SSL Load Error:', err.message);
+    process.exit(1);
+}
 
-    const jsonResponse = JSON.stringify(responseData).replace(/\//g, '\\/');
-    res.set({ 'Content-Type': 'application/json; charset=utf-8' });
-    res.status(200).send(jsonResponse);
+// ─────────────────────────────────────────────────────────
+// Create a proxy instance with selfHandleResponse = true
+// so we can log the response body without breaking the stream
+// ─────────────────────────────────────────────────────────
+const apiProxy = httpProxy.createProxyServer({
+    target: TARGET_API,
+    changeOrigin: true,
+    secure: false,
+    followRedirects: false,
+    selfHandleResponse: true   // <-- allows us to manually forward the response
 });
 
-// 2. MajorLogin - අර "400 Error" එක එන්නේ නැති වෙන්න මේකෙන් Hijacked Binary එක යවනවා
-app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MAJOR LOGIN] Hijacking with Binary Data...`);
-    
-    if (fs.existsSync(BINARY_FILE)) {
-        const binaryData = fs.readFileSync(BINARY_FILE);
-        res.set({
-            'Content-Type': 'application/octet-stream',
-            'Connection': 'close'
-        });
-        res.status(200).send(binaryData);
-        console.log(`✅ Binary sent! Game should bypass now.`);
-    } else {
-        console.log("❌ ERROR: login_success.bin file එක නැහැ!");
-        res.status(500).send("File Missing");
+// Handle proxy errors
+apiProxy.on('error', (err, req, res) => {
+    console.error(`❌ Proxy error for ${req.method} ${req.url}:`, err.message);
+    if (!res.headersSent) {
+        res.status(502).send('Proxy error');
     }
 });
 
-app.post('/Ping', (req, res) => res.status(200).send("OK"));
+// ─────────────────────────────────────────────────────────
+// Intercept the response from the target server
+// ─────────────────────────────────────────────────────────
+apiProxy.on('proxyRes', (proxyRes, req, res) => {
+    // Buffer all chunks from the target server
+    const chunks = [];
+    proxyRes.on('data', (chunk) => {
+        chunks.push(chunk);
+    });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 PRIVATE SERVER RUNNING ON PORT ${PORT}`);
+    proxyRes.on('end', () => {
+        const fullBuffer = Buffer.concat(chunks);
+        const contentType = proxyRes.headers['content-type'] || '';
+
+        // Log response for important endpoints
+        if (req.url.includes('MajorLogin') || req.url.includes('Ping') || req.url.includes('login')) {
+            console.log(`\n📡 [TARGET RESPONSE] ${req.method} ${req.url} - Status: ${proxyRes.statusCode}`);
+            console.log(`📋 Response Headers:`, JSON.stringify(proxyRes.headers, null, 2));
+
+            // Try to decode as UTF-8 (assuming JSON or text)
+            let bodyText = '(binary data)';
+            if (contentType.includes('application/json') || contentType.includes('text/')) {
+                bodyText = fullBuffer.toString('utf8');
+                try {
+                    // Pretty-print JSON if possible
+                    const json = JSON.parse(bodyText);
+                    bodyText = JSON.stringify(json, null, 2);
+                } catch (e) {
+                    // Not JSON, keep as is
+                }
+            }
+            console.log(`📨 Response Body:\n${bodyText.substring(0, 3000)}${bodyText.length > 3000 ? '\n... (truncated)' : ''}`);
+        }
+
+        // Forward the original status code and headers to the game client
+        res.status(proxyRes.statusCode);
+        Object.entries(proxyRes.headers).forEach(([key, value]) => {
+            // Skip content-length because we'll let Express set it
+            if (key.toLowerCase() !== 'content-length') {
+                res.setHeader(key, value);
+            }
+        });
+        // Send the exact buffer to the client
+        res.send(fullBuffer);
+    });
 });
+
+// ─────────────────────────────────────────────────────────
+// 1. /ver.php – fetch, decompress, rewrite URLs, send uncompressed
+// ─────────────────────────────────────────────────────────
+app.get('/ver.php', async (req, res) => {
+    console.log(`\n🔧 [VER.PHP] Fetching and rewriting...`);
+    try {
+        const response = await axios({
+            method: 'GET',
+            url: `${TARGET_VER_PHP}/ver.php`,
+            params: req.query,
+            headers: {
+                ...req.headers,
+                host: new URL(TARGET_VER_PHP).host,
+                'accept-encoding': undefined  // let axios decompress
+            },
+            responseType: 'arraybuffer',
+            validateStatus: () => true
+        });
+
+        let bodyString = Buffer.from(response.data).toString('utf8');
+        bodyString = bodyString.replace(/version\.astutech\.online/g, MY_DOMAIN);
+        bodyString = bodyString.replace(/srv0010\.astutech\.online/g, MY_DOMAIN);
+        
+        console.log(`✅ Rewritten: version.astutech.online / srv0010 → https://${MY_DOMAIN}`);
+
+        const responseHeaders = { ...response.headers };
+        delete responseHeaders['content-encoding'];
+        delete responseHeaders['content-length'];
+        
+        res.setHeader('Content-Type', responseHeaders['content-type'] || 'application/json');
+        res.setHeader('Cache-Control', responseHeaders['cache-control'] || 'no-cache');
+        res.status(response.status);
+        res.send(bodyString);
+        console.log(`✅ /ver.php rewritten and sent (${bodyString.length} bytes, uncompressed).`);
+    } catch (error) {
+        console.error('❌ /ver.php error:', error.message);
+        res.status(502).send('Failed to fetch version config');
+    }
+});
+
+// ─────────────────────────────────────────────────────────
+// 2. Catch‑all: proxy everything else to apiProxy
+// ─────────────────────────────────────────────────────────
+app.use((req, res) => {
+    if (req.path === '/ver.php') return;
+    // Pass the request to our custom proxy handler (selfHandleResponse)
+    apiProxy.web(req, res);
+});
+
+// ─────────────────────────────────────────────────────────
+// 3. Create HTTP and HTTPS servers
+// ─────────────────────────────────────────────────────────
+http.createServer(app).listen(80, '0.0.0.0', () => {
+    console.log(`🌐 HTTP proxy listening on port 80`);
+});
+
+https.createServer(sslOptions, app).listen(443, '0.0.0.0', () => {
+    console.log(`🔒 HTTPS proxy listening on port 443`);
+});
+
+console.log(`\n🚀 PROXY SERVER FULLY RUNNING on 80 & 443`);
+console.log(`🔗 Client will connect to https://${MY_DOMAIN}`);
+console.log(`📡 Forwarding API requests to ${TARGET_API}`);
+console.log(`📦 /ver.php responses are decompressed, rewritten, and sent uncompressed.\n`);
