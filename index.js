@@ -17,24 +17,40 @@ const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 // ─────────────────────────────────────────────────────────
 const BASE64_TEMPLATE = `1ZkuNBIAAABTRwAAAFNHIgBTRyogbGl2ZUKWIGV5SmhiR2NpT2lKSVV6STFOaUlzSW5OMmNpSTZJakVpTENKMGVYQWlPaUpLVjFRaWZRtmV5SmhZMk52ZFc1MFgzbGtrR294TXprNE9UZ3lNekEyTlN3aWJtbGphMjVhbVdzaU9pSm1ORlZDVmU1T2VYYzJja0k0ZHV2SDBPOVJYQUFHSGpla0lpd2libTkwYV9jbVdubHZiaU9pVTBjaUxTMWtiMk5yWTI5dVpXNWxYbkpsWjJsdmJpT2lVMENpTENKbWVYUmxjbTVoYmZocFpDSTZJbUU0TVRaaE56WmxZak00Tnpoak9ESmpOelZtT1RFeE1ERXhZVEUyT0dSbElpd2laWGwwWlhKdVlXeGZkSGx3WlNJNk1URXNJaHBzWVhSMFlXUmZpRE9qTVN3aW1HeGxiVzUwWDIxbGNuTnBiMjVpSWpvaU1TNHhNak11T0N0emRXNWxkbkpsYm5WemRHbHZiaU9pTVN3aW1XMTFiR3gwYjNKMmNteHZiV1VpT2pBd0xDSnBjeFpsYlhWc1lYUnZjbWxmYzJOdmNtVWlPaUptWVd4elpYUnzcpXp6yYmNjU3mYWRjYnpGSmYyZ3ZkbWxqYTI5dWJtVnNJaW9pTVN3aWljbVpzWldGelpWOWphR0Z1Ym1Wc0lqb2lZVzVreW05cFpDSXNJaUpyWld4bFlYTmxYMlpsY25OcGJjSXRhbTlrWlZOM0lpd2laWGh3SWpveE56YzNNamt6T1RBNGZRLm9Qa185X2pJQ2lydDZsS2ZFcVhReDBITENhVGRqMTNGSDBwMlhKQlo5ZGtI4uEgUiBodHRwczovL2F1dGhzcnYxLmFuZHJvaWRzcnZzLmNvbXogIBKCCV1jc292ZXJzZWEuc3Ryb25naG9sZC5mcmVlZmlyZW1vYmlsZS5jb207MzQuMTI2Ljc2LjQ1OzM0Ljg3LjE3Ny4xNDszNC44Ny4xNzAuMjMwOzM1LjE4NS4xODMuNTfopyDCz88fsqAgALEv6Z76vvdnICAgJDggIFIgurAgIKAgmpog7u13eiAwJFAnIEAAQA==`;
 
-// Decode the template once at startup
 const binaryTemplate = Buffer.from(BASE64_TEMPLATE, 'base64');
 console.log(`✅ Loaded binary template (${binaryTemplate.length} bytes)`);
 
-// Helper: extract JWT from binary (starts with "eyJ" and contains three dots)
+// ─────────────────────────────────────────────────────────
+// Robust JWT extraction from binary (scan for "eyJ")
+// ─────────────────────────────────────────────────────────
 function extractJwtFromBinary(bin) {
-    const binStr = bin.toString('utf8');
-    const match = binStr.match(/eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/);
-    return match ? match[0] : null;
+    // Convert to a string but only search for ASCII range
+    const str = bin.toString('binary');
+    const start = str.indexOf('eyJ');
+    if (start === -1) return null;
+    // Find the end: JWT ends with three dots, last dot position
+    let end = start;
+    let dotCount = 0;
+    for (let i = start; i < str.length && dotCount < 3; i++) {
+        if (str[i] === '.') dotCount++;
+        end = i;
+    }
+    if (dotCount < 3) return null;
+    // Extract the JWT substring (including the three dots)
+    const jwt = str.substring(start, end + 1);
+    // Validate it's a proper JWT (three parts)
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    return jwt;
 }
 
-// Helper: replace JWT in binary
+// Helper: replace JWT in binary (using direct string replacement on binary string)
 function replaceJwtInBinary(bin, newJwt) {
     const oldJwt = extractJwtFromBinary(bin);
     if (!oldJwt) throw new Error('No JWT found in template');
-    const binStr = bin.toString('utf8');
+    const binStr = bin.toString('binary');
     const newBinStr = binStr.replace(oldJwt, newJwt);
-    return Buffer.from(newBinStr, 'utf8');
+    return Buffer.from(newBinStr, 'binary');
 }
 
 // Build login response with custom payload
@@ -139,7 +155,6 @@ app.post('/MajorLogin', (req, res) => {
         account_id: 123456789,           // change to any number
         nickname: "MyServer",            // custom nickname
         session_key: "ff_emulator_" + Date.now(),
-        // You can also add: level, region, etc.
     };
     // =====================================================
     
@@ -155,7 +170,7 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 3. /Ping – keep‑alive (simple OK)
+// 3. /Ping – keep‑alive
 // ─────────────────────────────────────────────────────────
 app.post('/Ping', (req, res) => {
     console.log(`📡 [Ping]`);
@@ -170,14 +185,13 @@ app.all('/*splat', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
-// 5. TCP Core Server (port 7006) – game logic placeholder
+// 5. TCP Core Server (port 7006)
 // ─────────────────────────────────────────────────────────
 const tcpServer = net.createServer((socket) => {
     const addr = socket.remoteAddress;
     console.log(`\n📡 [TCP CONNECT] ${addr}`);
     socket.on('data', (data) => {
         console.log(`📩 [TCP DATA] ${data.length} bytes from ${addr}`);
-        // TODO: Implement actual game protocol
     });
     socket.on('error', (err) => console.log(`❌ TCP error: ${err.message}`));
     socket.on('close', () => console.log(`🔌 TCP closed: ${addr}`));
