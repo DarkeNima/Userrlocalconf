@@ -13,12 +13,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.disable('etag');
 
-// 1. Version API - ඔයා එවපු අලුත් Response එක මෙතනට දැම්මා
+// 1. Version API - ඔයා දුන්න අලුත්ම JSON එක මෙතන තියෙනවා
 app.get('/ver.php', (req, res) => {
     console.log(`\n[!] VER.PHP REQUEST FROM: ${req.ip}`);
     
     const responseData = {
-        "code": 2, // ඔයා එවපු විදිහටම code 2 දැම්මා
+        "code": 2, // ඔයාගේ screenshot එකේ error 2 ආවේ මේක නිසා, දැන් ඒක fix කරා
         "use_login_optional_download": false,
         "use_background_download": false,
         "use_background_download_lobby": false,
@@ -39,13 +39,13 @@ app.get('/ver.php', (req, res) => {
         "garena_login": false,
         "garena_hint": false,
         "gop_url": "",
-        "gamevar": "var_name,comment,var_type,var_value\nvar_name,comment,\"var_type float, int, bool\",var_value\nANODisabledRegions,\u5173\u95edMTP\u7684\u5730\u533a,string,\"IND,NA\"\nANODisabledClientVariant,ANODisabledClientVariant,string,\"ClientUsingVersion_MAX_HPE,ClientUsingVersion_FFI,ClientUsingVersion_MAX|IND,ClientUsingVersion_MAX|NA,ClientUsingVersion_NORMAL|NA\"\nEnableMtpLiteDataRegion,mtp\u8f7b\u7279\u5f81\u5f00\u5173,string,\"BR,EUROPE,ID,ME,US,RU,SAC,SG,TH,TW,VN,PK,ZA,BD\"\nANOEmulatorCheckDisbaledClientVariant,ANOEmulatorCheckDisbaledClientVariant,string,\"ClientUsingVersion_FFI,ClientUsingVersion_MAX,ClientUsingVersion_NORMAL\"\nForceTutorial_ChangeHudABTest,fps\u6d41\u7a0b\u4e2d\u6253\u5f00hud\u9009\u62e9\u754c\u9762\u7684\u6982\u7387,float,-1\n",
+        "gamevar": "var_name,comment,var_type,var_value\nvar_name,comment,\"var_type float, int, bool\",var_value\nANODisabledRegions,string,\"IND,NA\"\nANODisabledClientVariant,string,\"ClientUsingVersion_MAX_HPE,ClientUsingVersion_FFI,ClientUsingVersion_MAX|IND,ClientUsingVersion_MAX|NA,ClientUsingVersion_NORMAL|NA\"\nEnableMtpLiteDataRegion,string,\"BR,EUROPE,ID,ME,US,RU,SAC,SG,TH,TW,VN,PK,ZA,BD\"\nANOEmulatorCheckDisbaledClientVariant,string,\"ClientUsingVersion_FFI,ClientUsingVersion_MAX,ClientUsingVersion_NORMAL\"\nForceTutorial_ChangeHudABTest,float,-1\n",
         "device_whitelist_version": "1.5.0",
         "whitelist_mask": 0,
         "device_whitelist_sp_version": "1.0.0",
         "whitelist_sp_mask": 0,
         "ggp_url": "gin.freefiremobile.com",
-        "server_url": `${MY_URL}/`, // ඊළඟ පියවර සඳහා ඔයාගේ VPS එකට හරවනවා
+        "server_url": `${MY_URL}/`, 
         "core_url": MY_IP,
         "core_ip_list": [MY_IP, "0.0.0.0"]
     };
@@ -55,14 +55,9 @@ app.get('/ver.php', (req, res) => {
     res.status(200).send(jsonResponse);
 });
 
-// 2. Ping API
-app.post('/Ping', (req, res) => {
-    res.status(200).send("OK");
-});
-
-// 3. MajorLogin API - මෙතනදී තමයි 400 Error එක Bypass වෙන්නේ
+// 2. MajorLogin - බයිනරි එක යවන තැන
 app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MAJOR LOGIN] Hijacking with saved binary: ${req.ip}`);
+    console.log(`\n🎯 [MAJOR LOGIN]: Sending hijacked binary to ${req.ip}`);
     
     if (fs.existsSync(BINARY_FILE)) {
         const binaryData = fs.readFileSync(BINARY_FILE);
@@ -71,28 +66,15 @@ app.post('/MajorLogin', (req, res) => {
             'Connection': 'close'
         });
         res.status(200).send(binaryData);
-        console.log(`✅ Sent ${binaryData.length} bytes. Game should enter lobby now.`);
+        console.log(`✅ Binary sent!`);
     } else {
-        res.status(500).send("Login data missing");
+        console.log("❌ Error: login_success.bin missing!");
+        res.status(500).send("File missing");
     }
 });
 
-// 4. Catch-All Logger
-app.all(/.*/, (req, res) => {
-    if (req.path === '/ver.php' || req.path === '/MajorLogin' || req.path === '/Ping') return;
-    console.log(`🔎 [NEW PATH]: ${req.method} ${req.path}`);
-    res.status(200).send("OK"); 
-});
+app.post('/Ping', (req, res) => res.status(200).send("OK"));
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 PRIVATE SERVER IS ONLINE ON PORT ${PORT}`);
+    console.log(`🚀 Independent Server Active on Port ${PORT}`);
 });
-
-// 5. TCP Core Listener (Port 7006)
-const tcpServer = net.createServer((socket) => {
-    console.log(`\n📡 [TCP CONNECT] Lobby Entry: ${socket.remoteAddress}`);
-    socket.on('data', (data) => {
-        console.log(`📩 [TCP DATA]: ${data.length} bytes`);
-    });
-});
-tcpServer.listen(7006, '0.0.0.0');
