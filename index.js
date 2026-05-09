@@ -5,6 +5,7 @@ const https = require('https');
 const fs = require('fs');
 const net = require('net');
 const protobuf = require('protobufjs');
+const { spawn } = require('child_process'); // Python script එක run කරන්න අලුතින් එකතු කළා
 
 const app = express();
 const HTTP_PORT = 80;
@@ -71,8 +72,7 @@ try {
 app.use(express.raw({ type: 'application/octet-stream', limit: '2mb' }));
 app.use(express.json());
 
-// 🌐 3. ver.php
-//🌐 3. ver.php - ගේම් එක VPS එකට හරවා ගැනීම
+// 🌐 3. ver.php - ගේම් එක VPS එකට හරවා ගැනීම
 app.get('/ver.php', (req, res) => {
     console.log(`\n[VER.PHP] Requested by ${req.ip}`);
     const clientIp = req.ip.replace('::ffff:', '');
@@ -111,48 +111,61 @@ app.get('/ver.php', (req, res) => {
     res.status(200).json(verData);
     console.log(`✅ ver.php sent`);
 });
-// 🎯 4. MajorLogin (Live Relay & Patching)
-app.post('/MajorLogin', async (req, res) => {
-    console.log(`\n🔄 [MajorLogin] Relaying request to Official Server...`);
-    
-    try {
-        // Garena සර්වර් එක රැවටීමට අදාළ Headers එකතු කිරීම
-        const officialResponse = await axios.post('https://loginbp.ggpolarbear.com/MajorLogin', req.body, {
-            headers: { 
-                'Content-Type': 'application/octet-stream',
-                'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13; SM-S918B Build/TP1A.220624.014)', // Real Android Phone එකක් වගේ
-                'Host': 'loginbp.ggpolarbear.com',
-                'Connection': 'Keep-Alive',
-                'Accept-Encoding': 'gzip'
-            },
-            responseType: 'arraybuffer',
-            timeout: 15000,
-            // SSL Error එකක් ආවොත් ඒක bypass කරන්න (optional)
-            httpsAgent: new https.Agent({ rejectUnauthorized: false })
-        });
 
-        const decoded = LoginResponseMsg.decode(Buffer.from(officialResponse.data));
-        console.log(`✅ Live Token Received for ID: ${decoded.field1}`);
+// 🎯 4. MajorLogin (Python Relay & Patching)
+app.post('/MajorLogin', (req, res) => {
+    console.log(`\n🔄 [MajorLogin] Calling Python Relay (Android TLS Impersonation)...`);
 
-        // Patching
-        decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-        decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-        decoded.field10 = MY_URL_HTTPS;
+    // Python script එක ක්‍රියාත්මක කිරීම
+    const python = spawn('python3', ['relay.py']);
 
-        const patchedBuffer = LoginResponseMsg.encode(decoded).finish();
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.status(200).send(patchedBuffer);
-        console.log(`🚀 Patched Live Response Sent!`);
+    // Node.js වලට ආපු binary body එක Python එකට යැවීම
+    python.stdin.write(req.body);
+    python.stdin.end();
 
-    } catch (err) {
-        if (err.response) {
-            // Garena එකෙන්ම එවන Error එක බලන්න
-            console.error(`❌ Garena Rejected: Status ${err.response.status}`);
-        } else {
-            console.error(`❌ Connection Error:`, err.message);
+    let responseData = [];
+    python.stdout.on('data', (data) => {
+        responseData.push(data);
+    });
+
+    python.stderr.on('data', (data) => {
+        console.error(`❌ Python Error: ${data}`);
+    });
+
+    python.on('close', (code) => {
+        if (code !== 0) {
+            console.error(`❌ Python Relay failed with exit code ${code}`);
+            return res.status(200).send(Buffer.alloc(0));
         }
-        res.status(200).send(Buffer.alloc(0)); // ගේම් එක Crash නොවී ඉන්න හිස් Buffer එකක් යවන්න
-    }
+
+        const fullBuffer = Buffer.concat(responseData);
+        
+        try {
+            if (fullBuffer.length === 0) {
+                console.error("❌ Received empty response from Python relay");
+                return res.status(200).send(Buffer.alloc(0));
+            }
+
+            // Garena එකෙන් එවපු දත්ත Decode කිරීම
+            const decoded = LoginResponseMsg.decode(fullBuffer);
+            console.log(`✅ Live Token Received for ID: ${decoded.field1}`);
+
+            // Patching - අපේ සර්වර් එකට හරවා ගැනීම
+            decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+            decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+            decoded.field10 = MY_URL_HTTPS;
+
+            // පෑච් කළ දත්ත ආපහු Encode කර යැවීම
+            const patchedBuffer = LoginResponseMsg.encode(decoded).finish();
+            res.setHeader('Content-Type', 'application/octet-stream');
+            res.status(200).send(patchedBuffer);
+            console.log(`🚀 Patched Live Response Sent!`);
+
+        } catch (err) {
+            console.error(`❌ Proto Decode Error:`, err.message);
+            res.status(200).send(Buffer.alloc(0));
+        }
+    });
 });
 
 app.post('/Ping', (req, res) => res.status(200).send("OK"));
@@ -173,4 +186,4 @@ tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on Port
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
 
-console.log(`\n🔥 LIVE RELAY SERVER ACTIVE`);
+console.log(`\n🔥 LIVE RELAY SERVER ACTIVE (Anti-503 Mode)`);
