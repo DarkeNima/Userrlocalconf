@@ -22,8 +22,6 @@ const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 
 // ✅ 1. Realme V3 Proxy Setup (Tailscale IP)
-const proxyUrl = 'socks5://100.117.207.88:1080'; 
-const proxyAgent = new HttpsProxyAgent(proxyUrl);
 
 // 🛑 2. Protobuf Schema
 const root = protobuf.Root.fromJSON({
