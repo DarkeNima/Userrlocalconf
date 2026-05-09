@@ -9,155 +9,45 @@ const app = express();
 const HTTP_PORT = 80;
 const HTTPS_PORT = 443;
 const TCP_PORT = 7006;
-const MY_DOMAIN = 'navidu-ff.duckdns.org';
-const MY_IP = '139.162.54.41';
+
+// ඔයාගේ අලුත් IP එක සහ Domain එක
+const MY_DOMAIN = 'navivpn.sytes.net';
+const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 
-// ─────────────────────────────────────────────────────────
-// 1. Load Original Binary directly from file (No Base64 issues!)
-// ─────────────────────────────────────────────────────────
-const LOGIN_BIN_FILE = path.join(__dirname, 'login_success.bin');
+const TARGET_HOST = 'loginbp.ggpolarbear.com';
+const LOG_DIR = path.join(__dirname, 'logs');
 
-if (!fs.existsSync(LOGIN_BIN_FILE)) {
-    console.error(`❌ ERROR: Cannot find ${LOGIN_BIN_FILE}! Please put the file in the same folder.`);
-    process.exit(1);
-}
+// logs ෆෝල්ඩරය නැත්නම් අලුතින් හදමු
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
-let originalBinary = fs.readFileSync(LOGIN_BIN_FILE);
-console.log(`✅ Loaded original binary from file (${originalBinary.length} bytes)`);
-
-if (originalBinary.length !== 999) {
-    console.warn(`⚠️ WARNING: Your login_success.bin is ${originalBinary.length} bytes, not 999!`);
-}
-
-// ─────────────────────────────────────────────────────────
-// Helper: extract JWT and its start/end indices
-// ─────────────────────────────────────────────────────────
-function extractJwtWithPosition(bin) {
-    // JWT එක පටන් ගන්න තැන "eyJ" (0x65 0x79 0x4a) වලින් හොයාගන්නවා
-    let start = -1;
-    for (let i = 0; i < bin.length - 2; i++) {
-        if (bin[i] === 0x65 && bin[i+1] === 0x79 && bin[i+2] === 0x4a) {
-            start = i;
-            break;
-        }
-    }
-    if (start === -1) return null;
-
-    // JWT එකේ තියෙන්න පුළුවන් අකුරු විතරක් (A-Z, a-z, 0-9, -, _, .) තෝරගන්නවා
-    let end = start;
-    for (let i = start; i < bin.length; i++) {
-        const c = bin[i];
-        const isJwtChar = (
-            (c >= 0x41 && c <= 0x5a) || // A-Z
-            (c >= 0x61 && c <= 0x7a) || // a-z
-            (c >= 0x30 && c <= 0x39) || // 0-9
-            c === 0x2d || c === 0x5f || c === 0x2e // -, _, .
-        );
-        if (isJwtChar) {
-            end = i;
-        } else {
-            break; // JWT එක ඉවර වෙන තැන (non-base64 character එකක් හමු වූ විට)
-        }
-    }
-
-    const jwt = bin.slice(start, end + 1).toString('utf8');
-    const parts = jwt.split('.');
-    
-    // JWT එකේ කොටස් 3ක් (dots 2ක්) තියෙනවද කියලා චෙක් කරනවා
-    if (parts.length !== 3) {
-        console.error(`⚠️ Found something, but it has ${parts.length} parts instead of 3.`);
-        return null;
-    }
-
-    return { start, end, jwt };
-}
-
-
-// ─────────────────────────────────────────────────────────
-// Patch binary: replace specific fields in the JWT payload
-// ─────────────────────────────────────────────────────────
-function patchLoginBinary(customPayload) {
-    const info = extractJwtWithPosition(originalBinary);
-    if (!info) throw new Error('JWT not found in template.');
-    const { start, end, jwt } = info;
-    const parts = jwt.split('.');
-    const [header, oldPayloadB64, signature] = parts;
-    
-    let oldPayloadStr = Buffer.from(oldPayloadB64, 'base64url').toString('utf8');
-    let payload;
-    try {
-        payload = JSON.parse(oldPayloadStr);
-    } catch(e) {
-        payload = {};
-    }
-    
-    // ─────────────────────────────────────────────────────────
-    // මෙතනදී අපි පරණ පේලෝඩ් එකේ තිබ්බ දත්ත වෙනස් කරන්නේ නැහැ.
-    // කරන්නෙ අපේ සර්වර් එකට ඕන දේවල් විතරක් Update කරන එක.
-    // ─────────────────────────────────────────────────────────
-    
-    // 1. Core IP එක උඹේ VPS IP එකට මාරු කරනවා
-    payload.core_url = MY_IP; 
-    
-    // 2. Expire date එක අවුරුදු 10කට පස්සට දානවා (Session expired නොවෙන්න)
-    payload.exp = Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 3600;
-
-    // 3. උඹට අලුතින් මොනවා හරි දාන්න ඕන නම් විතරක් customPayload පාවිච්චි වෙනවා
-    // නැත්නම් ඔරිජිනල් නමයි ID එකයිම තියෙයි.
-    Object.assign(payload, customPayload);
-    
-    let newPayloadStr = JSON.stringify(payload);
-    let oldPayloadLen = oldPayloadStr.length;
-    let newPayloadLen = newPayloadStr.length;
-    
-    // Length එක සමාන කරන්න Padding කරනවා
-    if (newPayloadLen < oldPayloadLen) {
-        const padCount = oldPayloadLen - newPayloadLen;
-        newPayloadStr = newPayloadStr.slice(0, -1) + ' '.repeat(padCount) + '}';
-    } else if (newPayloadLen > oldPayloadLen) {
-        // තවමත් දිග වැඩියි නම් Warning එකක් දෙනවා
-        console.warn(`⚠️ Warning: Payload still too long (${newPayloadLen} > ${oldPayloadLen})`);
-        newPayloadStr = newPayloadStr.slice(0, oldPayloadLen);
-    }
-    
-    const newPayloadB64 = Buffer.from(newPayloadStr, 'utf8').toString('base64url');
-    const newJwt = `${header}.${newPayloadB64}.${signature}`;
-    const newJwtBuffer = Buffer.from(newJwt, 'utf8');
-    
-    const patched = Buffer.alloc(originalBinary.length);
-    originalBinary.copy(patched, 0, 0, start);
-    newJwtBuffer.copy(patched, start);
-    originalBinary.copy(patched, start + newJwtBuffer.length, end + 1);
-    
-    return patched;
-}
-
-
-// ─────────────────────────────────────────────────────────
-// SSL certificates (Let's Encrypt)
-// ─────────────────────────────────────────────────────────
+// ⚠️ SSL සහතික සෙට් කිරීම 
+// (අලුත් navivpn.sytes.net එකට Let's Encrypt අරන් තියෙන්න ඕනේ)
 let sslOptions;
 try {
     sslOptions = {
         key: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/privkey.pem`),
         cert: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/fullchain.pem`)
     };
-    console.log('✅ SSL loaded');
+    console.log('✅ SSL loaded successfully');
 } catch (err) {
-    console.error('❌ SSL error:', err.message);
+    console.error('❌ SSL error (Let\'s Encrypt සහතික නැතිනම් Server එක Run වෙන්නේ නෑ):', err.message);
     process.exit(1);
 }
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.disable('etag');
+// Binary Data (Protobuf) හරියටම capture කරන්න ඕන නිසා මේක පාවිච්චි කරනවා
+app.use((req, res, next) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+        req.rawBody = Buffer.concat(chunks);
+        next();
+    });
+});
 
-// ─────────────────────────────────────────────────────────
-// /ver.php
-// ─────────────────────────────────────────────────────────
+// 1. ගේම් එකට අපේ සර්වර් එකේ විස්තර දෙන තැන (ver.php)
 app.get('/ver.php', (req, res) => {
-    console.log(`\n[VER.PHP] from ${req.ip}`);
+    console.log(`\n[VER.PHP] Requested by ${req.ip}`);
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
         "code": 0,
@@ -176,7 +66,7 @@ app.get('/ver.php', (req, res) => {
         "should_check_ab_load": false,
         "force_refresh_restype": "optionalavatarres",
         "remote_version": "1.123.8",
-        "server_url": `${MY_URL_HTTPS}/`,
+        "server_url": `${MY_URL_HTTPS}/`, // ගේම් එකට අපේ VPS එකට එන්න කියනවා
         "is_review_server": false,
         "use_login_optional_download": true,
         "use_background_download": false,
@@ -184,7 +74,7 @@ app.get('/ver.php', (req, res) => {
         "country_code": "SG",
         "client_ip": clientIp,
         "gdpr_version": 0,
-        "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf102.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf103.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf104.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf105.ff_extend",
+        "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend;https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf102.ff_extend",
         "ggp_url": MY_IP,
         "core_url": MY_IP,
         "core_ip_list": [MY_IP, "0.0.0.0"]
@@ -194,32 +84,57 @@ app.get('/ver.php', (req, res) => {
     console.log(`✅ ver.php sent`);
 });
 
-// ─────────────────────────────────────────────────────────
-// /MajorLogin – serve length‑preserved patched binary
-// ─────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────
-// /MajorLogin – serve length‑preserved patched binary
-// ─────────────────────────────────────────────────────────
+// 2. MajorLogin යවන එක Official Server එකට Forward කරලා Data Capture කිරීම
 app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] from ${req.ip}`);
-    
-    // මෙතන හිස්ව තිබ්බොත් ඔරිජිනල් නමයි ID එකයි ඔටෝම වැටෙනවා
-    const customPayload = {}; 
-    
-    try {
-        const patchedBinary = patchLoginBinary(customPayload);
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.status(200).send(patchedBinary);
-        console.log(`✅ Sent patched binary (Original ID/Name preserved)`);
-    } catch (err) {
-        console.error(`❌ Patching error:`, err.message);
-        res.status(500).send('Internal server error');
-    }
+    const timestamp = Date.now();
+    console.log(`\n🎯 [MajorLogin] Intercepted from ${req.ip}`);
+
+    // ගේම් එකෙන් ආපු Binary Data එක Save කිරීම (Request)
+    const reqLogPath = path.join(LOG_DIR, `req_MajorLogin_${timestamp}.bin`);
+    fs.writeFileSync(reqLogPath, req.rawBody);
+    console.log(`[→] Game Request Data Saved: ${req.rawBody.length} bytes`);
+
+    // Official Server එකට යවන්න Headers හදමු (Host එක වෙනස් කරනවා)
+    const forwardHeaders = { ...req.headers, host: TARGET_HOST };
+
+    const options = {
+        hostname: TARGET_HOST,
+        port: 443,
+        path: req.originalUrl,
+        method: req.method,
+        headers: {
+            ...forwardHeaders,
+            'content-length': req.rawBody.length,
+        },
+    };
+
+    // Official Server එකට Request එක යැවීම
+    const proxyReq = https.request(options, (proxyRes) => {
+        const resChunks = [];
+
+        proxyRes.on('data', chunk => resChunks.push(chunk));
+        proxyRes.on('end', () => {
+            const responseBody = Buffer.concat(resChunks);
+
+            // Official Server එකෙන් ආපු Binary Data එක Save කිරීම (Response)
+            const resLogPath = path.join(LOG_DIR, `res_MajorLogin_${timestamp}.bin`);
+            fs.writeFileSync(resLogPath, responseBody);
+            console.log(`[←] Official Response Saved: Status ${proxyRes.statusCode} | ${responseBody.length} bytes`);
+
+            // ඒ ආපු විදිහටම ගේම් එකට ආපහු යැවීම
+            res.writeHead(proxyRes.statusCode, proxyRes.headers);
+            res.end(responseBody);
+        });
+    });
+
+    proxyReq.on('error', (err) => {
+        console.error('❌ [PROXY ERROR]', err.message);
+        res.status(502).send('Bad Gateway');
+    });
+
+    proxyReq.write(req.rawBody);
+    proxyReq.end();
 });
-
-// ඊළඟට Ping එක එහෙමම තියෙන්න දෙන්න
-
-
 
 app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
 
@@ -228,12 +143,15 @@ app.all('/*splat', (req, res) => {
     res.status(200).send("OK");
 });
 
+// TCP Server (දැනට නිකම්ම On කරලා තියෙන්නේ)
 const tcpServer = net.createServer((socket) => {});
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Core on ${TCP_PORT}`));
 
+// Web Servers
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
 
-console.log(`\n🚀 LENGTH‑PRESERVING PATCHER ACTIVE`);
-console.log(`🔗 ${MY_URL_HTTPS}`);
-console.log(`📦 /MajorLogin reads from file and returns exact length`);
+console.log(`\n🚀 REVERSE PROXY & LOGGER ACTIVE`);
+console.log(`🔗 Domain: ${MY_URL_HTTPS}`);
+console.log(`🎯 Forwarding /MajorLogin to ${TARGET_HOST}`);
+console.log(`📁 Logs will be saved in: ${LOG_DIR}`);
