@@ -1,4 +1,4 @@
-const express = require('express');
+ const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -119,25 +119,24 @@ app.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MajorLogin] Request from ${req.ip}`);
     
     try {
-        // ඔයා දීපු Decode කරපු දත්ත ටික මෙතන තියෙනවා.
-        // Field 16 & 24 වල තිබුණු Garena Server IP අයින් කරලා අපේ VPS IP එක දැම්මා!
+        // ඉතා වැදගත්: uint64 අගයන් String ලෙස තැබිය යුතුය (protobufjs handle කරයි)
         const payload = {
-            field1: 9630144540,
+            field1: "9630144540", 
             field2: "SG",
             field3: "SG",
             field4: "SG",
             field5: "live",
-            field8: "eyJhbGciOiJIUzI1NiIsInN2ciI6IjEiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lkIjo5NjMwMTQ0NTQwLCJuaWNrbmFtZSI6Illpa2Jkbmh1T2lJPSIsIm5vdGlfcmVnaW9uIjoiU0ciLCJsb2NrX3JlZ2lvbiI6IlNHIiwiZXh0ZXJuYWxfaWQiOiJhODEyMTVjNDVhNjlmNjVjYTcwZWQ1ZDgzOTFiODZhNyIsImV4dGVybmFsX3R5cGUiOjgsInBsYXRfaWQiOjEsImNsaWVudF92ZXJzaW9uIjoiMS4xMjMuOCIsImVtdWxhdG9yX3Njb3JlIjowLCJpc19lbXVsYXRvciI6ZmFsc2UsImNvdW50cnlfY29kZSI6IlNHIiwiZXh0ZXJuYWxfdWlkIjoxNTkxMDAxMTMzNzU2LCJyZWdfYXZhdGFyIjoxMDIwMDAwMDUsInNvdXJjZSI6MCwibG9ja19yZWdpb25fdGltZSI6MTcyMDUzNDI4NywiY2xpZW50X3R5cGUiOjIsInNpZ25hdHVyZV9tZDUiOiI3NDI4YjI1M2RlZmMxNjQwMThjNjA0YTFlYmJmZWJkZiIsInVzaW5nX3ZlcnNpb24iOjEsInJlbGVhc2VfY2hhbm5lbCI6ImFuZHJvaWQiLCJyZWxlYXNlX3ZlcnNpb24iOiJPQjUzIiwiZXhwIjoxNzc4MzQ4OTgxfQ.oCz8WZWSIOwPODOlGE7qwgw55dT4rqsNV5p33ZaACuI",
+            field8: "eyJhbGciOiJIUzI1NiIsInN2ciI6IjEiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lkIjo5NjMwMTQ0NTQwLCJuaWNrbmFtZSI6Illpa2Jkbmh1T2lJPSIsIm5vdGlfcmVnaW9uIjoiU0ciLCJsb2NrX3JlZ2lvbiI6IlNHIiwiZXh0ZXJuYWxfaWQiOiJhODEyMTVjNDVhNjlmNjVjYTcwZWQ1ZDgzOTFiODZhNyIsImV4dGVybmFsX3R5cGUiOjgsInBsYXRfaWQiOjEsImNsaWVudF92ZXJzaW9uIjoiMS4xMjMuOCIsImVtdWxhdG9yX3Njb3JlIjowLCJpc19lbXVsYXRvciI6ZmFsc2UsImNvdW50cnlfY29kZSI6IlNHIiwiZXh0ZXJuYWxfdWlkIjoxNTkxMDAxMTMzNzU2LCJyZWdfYXZhdGFyIjoxMDIwMDAwMDUsInNvdXJjZSI6MCwibG9ja19yZWdpb25fdGltZSI6MTcyMDUzNDI4NywiY2xpZW50X3R5cGUiOjIsInNpZ25hdHVyZV9tZDUiOiI3NDI4YjI1M2RlZmMxNjQwMThjNjA0YTFlYmJmZWJkZiIsInVzaW5nX3ZlcnNpb24iOjEsInJlbGVhc2VfY2hhbm5lbCI6ImFuZHJvaWQiLCJyZWxlYXNlX3ZlcnNpb24iOiJPQjUzIiwiZXhwIjoyMDk0NDYwODAwfQ.oCz8WZWSIOwPODOlGE7qwgw55dT4rqsNV5p33ZaACuI",
             field9: 28800,
-            field10: MY_URL_HTTPS, // ClientBP URL එක අපේ Domain එකට හැරෙව්වා
+            field10: "https://clientbp.ggpolarbear.com", 
             field15: { sub1: 1 },
-            field16: `${MY_IP}:${TCP_PORT}`, // Garena IP වෙනුවට අපේ VPS එකට Game එක Connect කරවමු
+            field16: `${MY_IP}:${TCP_PORT}`, 
             field19: "Singapore",
             field21: 1778320181,
-            // Hex Bytes ටික Buffer වලට හැරවීම (Key & IV)
+            // ⚠️ අවධානය: hex string එකේ හිස්තැන් තිබිය නොහැක
             field22: Buffer.from("cdf7dd8bef5bf9774054040840304234", "hex"),
             field23: Buffer.from("fccfae85ff6dfa776110044050304036", "hex"),
-            field24: `${MY_IP}:${TCP_PORT}`, // Game TCP Server
+            field24: `${MY_IP}:${TCP_PORT}`, 
             field25: {
                 sub1: "SG",
                 sub2: 1,
@@ -147,17 +146,17 @@ app.post('/MajorLogin', (req, res) => {
             }
         };
 
-        // Protobuf Message එක Binary බවට පත් කිරීම
         const message = LoginResponseMsg.create(payload);
         const buffer = LoginResponseMsg.encode(message).finish();
 
+        // 🛑 Header එක අනිවාර්යයි
         res.setHeader('Content-Type', 'application/octet-stream');
         res.status(200).send(buffer);
-        console.log(`✅ Sent custom MajorLogin Protobuf binary (${buffer.length} bytes)`);
+        console.log(`✅ Binary Sent! Length: ${buffer.length} bytes`);
 
     } catch (err) {
-        console.error(`❌ Protobuf Generation error:`, err.message);
-        res.status(500).send('Internal server error');
+        console.error(`❌ Serialization Error:`, err);
+        res.status(500).send('Error');
     }
 });
 
