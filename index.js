@@ -5,7 +5,12 @@ const fs = require('fs');
 const net = require('net');
 const protobuf = require('protobufjs');
 const zlib = require('zlib');
-const { HttpsProxyAgent } = require('https-proxy-agent');
+// මේක උඩින්ම දාන්න (පරණ https-proxy-agent එක වෙනුවට)
+const { SocksProxyAgent } = require('socks-proxy-agent');
+
+// Realme V3 Proxy Setup (Tailscale IP)
+const proxyUrl = 'socks5://100.117.207.88:1080'; 
+const proxyAgent = new SocksProxyAgent(proxyUrl);
 
 const app = express();
 const HTTP_PORT = 80;
