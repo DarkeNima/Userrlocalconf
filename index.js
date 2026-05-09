@@ -116,34 +116,42 @@ app.post('/MajorLogin', async (req, res) => {
     console.log(`\n🔄 [MajorLogin] Relaying request to Official Server...`);
     
     try {
-        // A. ගේම් එකෙන් ආපු Binary data එක එහෙමම Official Server එකට යවනවා
+        // Garena සර්වර් එක රැවටීමට අදාළ Headers එකතු කිරීම
         const officialResponse = await axios.post('https://loginbp.ggpolarbear.com/MajorLogin', req.body, {
-            headers: { 'Content-Type': 'application/octet-stream' },
+            headers: { 
+                'Content-Type': 'application/octet-stream',
+                'User-Agent': 'Dalvik/2.1.0 (Linux; U; Android 13; SM-S918B Build/TP1A.220624.014)', // Real Android Phone එකක් වගේ
+                'Host': 'loginbp.ggpolarbear.com',
+                'Connection': 'Keep-Alive',
+                'Accept-Encoding': 'gzip'
+            },
             responseType: 'arraybuffer',
-            timeout: 10000
+            timeout: 15000,
+            // SSL Error එකක් ආවොත් ඒක bypass කරන්න (optional)
+            httpsAgent: new https.Agent({ rejectUnauthorized: false })
         });
 
-        // B. Official Response එක Decode කරලා බලනවා
         const decoded = LoginResponseMsg.decode(Buffer.from(officialResponse.data));
-        console.log(`✅ Live Token Received for: ${decoded.field1}`);
+        console.log(`✅ Live Token Received for ID: ${decoded.field1}`);
 
-        // C. දැන් වැදගත්ම කොටස - දත්ත "Patch" කිරීම
-        // Token එක සහ Keys (Field 8, 22, 23) එහෙමම තියෙද්දී IP විතරක් අපේ එකට හරවනවා
+        // Patching
         decoded.field16 = `${MY_IP}:${TCP_PORT}`;
         decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-        decoded.field10 = MY_URL_HTTPS; // ClientBP එකත් අපේ එකට
+        decoded.field10 = MY_URL_HTTPS;
 
-        // D. Patch කරපු දත්ත නැවත Binary (Protobuf) කරලා ගේම් එකට යවනවා
         const patchedBuffer = LoginResponseMsg.encode(decoded).finish();
-
         res.setHeader('Content-Type', 'application/octet-stream');
         res.status(200).send(patchedBuffer);
-        console.log(`🚀 Patched Live Response Sent! (${patchedBuffer.length} bytes)`);
+        console.log(`🚀 Patched Live Response Sent!`);
 
     } catch (err) {
-        console.error(`❌ Relay Error:`, err.message);
-        // මොකක් හරි අවුලක් වුණොත් "Network Error" නොවී ඉන්න සාමාන්‍ය OK එකක් යවනවා
-        res.status(500).send("Proxy Error");
+        if (err.response) {
+            // Garena එකෙන්ම එවන Error එක බලන්න
+            console.error(`❌ Garena Rejected: Status ${err.response.status}`);
+        } else {
+            console.error(`❌ Connection Error:`, err.message);
+        }
+        res.status(200).send(Buffer.alloc(0)); // ගේම් එක Crash නොවී ඉන්න හිස් Buffer එකක් යවන්න
     }
 });
 
