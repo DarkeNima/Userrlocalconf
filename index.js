@@ -1,4 +1,5 @@
- const express = require('express');
+const express = require('express');
+const axios = require('axios');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -10,12 +11,12 @@ const HTTP_PORT = 80;
 const HTTPS_PORT = 443;
 const TCP_PORT = 7006;
 
-// ඔයාගේ අලුත් VPS IP එක සහ Domain එක
+// VPS විස්තර
 const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 
-// 🛑 1. Official Server එකෙන් ආපු දත්ත වලට සමාන Protobuf Schema එක
+// 🛑 1. Protobuf Schema එක (Garena Structure එකටම)
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -29,20 +30,16 @@ const root = protobuf.Root.fromJSON({
                 field9: { type: "uint32", id: 9 },
                 field10: { type: "string", id: 10 },
                 field15: { type: "Field15Msg", id: 15 },
-                field16: { type: "string", id: 16 }, // Game Server IPs
+                field16: { type: "string", id: 16 }, // Server IP
                 field19: { type: "string", id: 19 },
-                field21: { type: "uint32", id: 21 }, // Timestamp
-                field22: { type: "bytes", id: 22 },  // Key
-                field23: { type: "bytes", id: 23 },  // IV
-                field24: { type: "string", id: 24 }, // Game Server IPs
+                field21: { type: "uint32", id: 21 },
+                field22: { type: "bytes", id: 22 },  // Crypto Key
+                field23: { type: "bytes", id: 23 },  // Crypto IV
+                field24: { type: "string", id: 24 }, // Server IP
                 field25: { type: "Field25Msg", id: 25 }
             }
         },
-        Field15Msg: {
-            fields: {
-                sub1: { type: "uint32", id: 1 }
-            }
-        },
+        Field15Msg: { fields: { sub1: { type: "uint32", id: 1 } } },
         Field25Msg: {
             fields: {
                 sub1: { type: "string", id: 1 },
@@ -57,7 +54,7 @@ const root = protobuf.Root.fromJSON({
 
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
-// 🔒 2. SSL Certificates ලෝඩ් කිරීම
+// 🔒 2. SSL Certificates
 let sslOptions;
 try {
     sslOptions = {
@@ -70,11 +67,12 @@ try {
     process.exit(1);
 }
 
+// Binary Data handle කරන්න අවශ්‍ය Middleware
+app.use(express.raw({ type: 'application/octet-stream', limit: '2mb' }));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.disable('etag');
 
-// 🌐 3. ver.php - ගේම් එක VPS එකට හරවා ගැනීම
+// 🌐 3. ver.php
+//🌐 3. ver.php - ගේම් එක VPS එකට හරවා ගැනීම
 app.get('/ver.php', (req, res) => {
     console.log(`\n[VER.PHP] Requested by ${req.ip}`);
     const clientIp = req.ip.replace('::ffff:', '');
@@ -113,79 +111,58 @@ app.get('/ver.php', (req, res) => {
     res.status(200).json(verData);
     console.log(`✅ ver.php sent`);
 });
-
-// 🎯 4. MajorLogin - අපේ Custom Protobuf Payload එක යැවීම
-app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Request from ${req.ip}`);
+// 🎯 4. MajorLogin (Live Relay & Patching)
+app.post('/MajorLogin', async (req, res) => {
+    console.log(`\n🔄 [MajorLogin] Relaying request to Official Server...`);
     
     try {
-        // ඉතා වැදගත්: uint64 අගයන් String ලෙස තැබිය යුතුය (protobufjs handle කරයි)
-        const payload = {
-            field1: "9630144540", 
-            field2: "SG",
-            field3: "SG",
-            field4: "SG",
-            field5: "live",
-            field8: "eyJhbGciOiJIUzI1NiIsInN2ciI6IjEiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lkIjo5NjMwMTQ0NTQwLCJuaWNrbmFtZSI6Illpa2Jkbmh1T2lJPSIsIm5vdGlfcmVnaW9uIjoiU0ciLCJsb2NrX3JlZ2lvbiI6IlNHIiwiZXh0ZXJuYWxfaWQiOiJhODEyMTVjNDVhNjlmNjVjYTcwZWQ1ZDgzOTFiODZhNyIsImV4dGVybmFsX3R5cGUiOjgsInBsYXRfaWQiOjEsImNsaWVudF92ZXJzaW9uIjoiMS4xMjMuOCIsImVtdWxhdG9yX3Njb3JlIjowLCJpc19lbXVsYXRvciI6ZmFsc2UsImNvdW50cnlfY29kZSI6IlNHIiwiZXh0ZXJuYWxfdWlkIjoxNTkxMDAxMTMzNzU2LCJyZWdfYXZhdGFyIjoxMDIwMDAwMDUsInNvdXJjZSI6MCwibG9ja19yZWdpb25fdGltZSI6MTcyMDUzNDI4NywiY2xpZW50X3R5cGUiOjIsInNpZ25hdHVyZV9tZDUiOiI3NDI4YjI1M2RlZmMxNjQwMThjNjA0YTFlYmJmZWJkZiIsInVzaW5nX3ZlcnNpb24iOjEsInJlbGVhc2VfY2hhbm5lbCI6ImFuZHJvaWQiLCJyZWxlYXNlX3ZlcnNpb24iOiJPQjUzIiwiZXhwIjoyMDk0NDYwODAwfQ.oCz8WZWSIOwPODOlGE7qwgw55dT4rqsNV5p33ZaACuI",
-            field9: 28800,
-            field10: "https://clientbp.ggpolarbear.com", 
-            field15: { sub1: 1 },
-            field16: `${MY_IP}:${TCP_PORT}`, 
-            field19: "Singapore",
-            field21: 1778320181,
-            // ⚠️ අවධානය: hex string එකේ හිස්තැන් තිබිය නොහැක
-            field22: Buffer.from("cdf7dd8bef5bf9774054040840304234", "hex"),
-            field23: Buffer.from("fccfae85ff6dfa776110044050304036", "hex"),
-            field24: `${MY_IP}:${TCP_PORT}`, 
-            field25: {
-                sub1: "SG",
-                sub2: 1,
-                sub5: 1,
-                sub6: 1,
-                sub7: 1
-            }
-        };
+        // A. ගේම් එකෙන් ආපු Binary data එක එහෙමම Official Server එකට යවනවා
+        const officialResponse = await axios.post('https://loginbp.ggpolarbear.com/MajorLogin', req.body, {
+            headers: { 'Content-Type': 'application/octet-stream' },
+            responseType: 'arraybuffer',
+            timeout: 10000
+        });
 
-        const message = LoginResponseMsg.create(payload);
-        const buffer = LoginResponseMsg.encode(message).finish();
+        // B. Official Response එක Decode කරලා බලනවා
+        const decoded = LoginResponseMsg.decode(Buffer.from(officialResponse.data));
+        console.log(`✅ Live Token Received for: ${decoded.field1}`);
 
-        // 🛑 Header එක අනිවාර්යයි
+        // C. දැන් වැදගත්ම කොටස - දත්ත "Patch" කිරීම
+        // Token එක සහ Keys (Field 8, 22, 23) එහෙමම තියෙද්දී IP විතරක් අපේ එකට හරවනවා
+        decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+        decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+        decoded.field10 = MY_URL_HTTPS; // ClientBP එකත් අපේ එකට
+
+        // D. Patch කරපු දත්ත නැවත Binary (Protobuf) කරලා ගේම් එකට යවනවා
+        const patchedBuffer = LoginResponseMsg.encode(decoded).finish();
+
         res.setHeader('Content-Type', 'application/octet-stream');
-        res.status(200).send(buffer);
-        console.log(`✅ Binary Sent! Length: ${buffer.length} bytes`);
+        res.status(200).send(patchedBuffer);
+        console.log(`🚀 Patched Live Response Sent! (${patchedBuffer.length} bytes)`);
 
     } catch (err) {
-        console.error(`❌ Serialization Error:`, err);
-        res.status(500).send('Error');
+        console.error(`❌ Relay Error:`, err.message);
+        // මොකක් හරි අවුලක් වුණොත් "Network Error" නොවී ඉන්න සාමාන්‍ය OK එකක් යවනවා
+        res.status(500).send("Proxy Error");
     }
 });
 
-app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
+app.post('/Ping', (req, res) => res.status(200).send("OK"));
+app.all('/*splat', (req, res) => res.status(200).send("OK"));
 
-// වෙනත් ඕනෑම Request එකක් ආවොත් OK කියලා යවනවා
-app.all('/*splat', (req, res) => {
-    if (['/ver.php', '/MajorLogin', '/Ping'].includes(req.path)) return;
-    res.status(200).send("OK");
-});
-
-// ⚡ TCP සර්වර් එක - ගේම් එක Login වුණාට පස්සේ Connect වෙන්නේ මෙතනටයි
+// ⚡ 5. TCP Server (Lobby/Match Server)
 const tcpServer = net.createServer((socket) => {
-    console.log(`\n🎮 [TCP] Game Client Connected from ${socket.remoteAddress}`);
+    console.log(`\n🎮 [TCP] Game Client Connected: ${socket.remoteAddress}`);
     
     socket.on('data', (data) => {
-        console.log(`[TCP] Received ${data.length} bytes from Client`);
-        // මෙතනින් ඉස්සරහට Game Play Packets Handle කරන්න ඕනේ
+        console.log(`[TCP] Data Received: ${data.length} bytes`);
     });
 
     socket.on('error', (err) => console.log(`[TCP Error] ${err.message}`));
-    socket.on('close', () => console.log(`[TCP] Client Disconnected`));
 });
 
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 Game TCP Server running on Port ${TCP_PORT}`));
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on Port ${TCP_PORT}`));
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
 
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP running on ${HTTP_PORT}`));
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS running on ${HTTPS_PORT}`));
-
-console.log(`\n🚀 FREE FIRE PRIVATE SERVER ACTIVE`);
-console.log(`🔗 Domain: ${MY_URL_HTTPS}`);
-console.log(`📦 MajorLogin Protocol: Protobuf Dynamic Generation`);
+console.log(`\n🔥 LIVE RELAY SERVER ACTIVE`);
