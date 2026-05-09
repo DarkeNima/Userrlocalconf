@@ -113,20 +113,26 @@ app.get('/ver.php', (req, res) => {
 });
 
 // 🎯 4. MajorLogin (Python Relay & Patching)
+// 🎯 4. MajorLogin (Python Relay & Patching)
 app.post('/MajorLogin', (req, res) => {
     console.log(`\n🔄 [MajorLogin] Calling Python Relay (Android TLS Impersonation)...`);
 
-    // Python script එක ක්‍රියාත්මක කිරීම
+    // body එක නැත්නම් error එකක් එන එක නවත්තන්න
+    if (!req.body || req.body.length === 0) {
+        console.error("❌ Error: Request body is empty or undefined");
+        return res.status(200).send(Buffer.alloc(0));
+    }
+
     const python = spawn('python3', ['relay.py']);
 
-    // Node.js වලට ආපු binary body එක Python එකට යැවීම
+    // මෙතන තමයි කලින් error එක ආවේ (req.body undefined වුණොත්)
     python.stdin.write(req.body);
     python.stdin.end();
 
     let responseData = [];
-    python.stdout.on('data', (data) => {
-        responseData.push(data);
-    });
+    python.stdout.on('data', (data) => responseData.push(data));
+
+    // ... ඉතිරි ටික කලින් වගේමයි ...
 
     python.stderr.on('data', (data) => {
         console.error(`❌ Python Error: ${data}`);
