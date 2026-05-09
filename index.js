@@ -4,7 +4,8 @@ const https = require('https');
 const fs = require('fs');
 const net = require('net');
 const protobuf = require('protobufjs');
-const { spawn } = require('child_process');
+const zlib = require('zlib');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const app = express();
 const HTTP_PORT = 80;
@@ -15,7 +16,11 @@ const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 
-// 🛑 1. Protobuf Schema
+// ✅ 1. Realme V3 Proxy Setup (Tailscale IP)
+const proxyUrl = 'socks5://100.117.207.88:1080'; 
+const proxyAgent = new HttpsProxyAgent(proxyUrl);
+
+// 🛑 2. Protobuf Schema
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -50,10 +55,9 @@ const root = protobuf.Root.fromJSON({
         }
     }
 });
-
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
-// 🔒 2. SSL Certificates
+// 🔒 3. SSL Certificates
 let sslOptions;
 try {
     sslOptions = {
@@ -66,31 +70,25 @@ try {
     process.exit(1);
 }
 
-// Middleware - JSON විතරක් ඉතිරි කරලා raw body අයින් කළා (අපි manually ගන්න නිසා)
 app.use(express.json());
 
-// ─── 🛠️ Manual Body Collector (Claude's Suggestion) ─────────────────────────
+// ─── 🛠️ Manual Body Collector ──────────────────────────────────────
 function collectRawBody(req, maxBytes = 2 * 1024 * 1024) {
     return new Promise((resolve, reject) => {
         const chunks = [];
         let totalBytes = 0;
         req.on('data', (chunk) => {
             totalBytes += chunk.length;
-            if (totalBytes > maxBytes) {
-                req.destroy();
-                return reject(new Error('Payload too large'));
-            }
+            if (totalBytes > maxBytes) { req.destroy(); return reject(new Error('Payload too large')); }
             chunks.push(chunk);
         });
         req.on('end', () => resolve(Buffer.concat(chunks)));
         req.on('error', reject);
-        req.on('aborted', () => reject(new Error('Request aborted')));
     });
 }
 
-// 🌐 3. ver.php
+// 🌐 4. ver.php
 app.get('/ver.php', (req, res) => {
-    console.log(`\n[VER.PHP] Requested by ${req.ip}`);
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
         "code": 0, "is_server_open": true, "is_firewall_open": false,
@@ -103,66 +101,97 @@ app.get('/ver.php', (req, res) => {
         "latest_release_version": "OB53", "min_hint_size": 1, "space_required_in_GB": 1.48,
         "should_check_ab_load": false, "force_refresh_restype": "optionalavatarres",
         "remote_version": "1.123.8", "server_url": `${MY_URL_HTTPS}/`, 
-        "is_review_server": false, "use_login_optional_download": true,
-        "use_background_download": false, "use_background_download_lobby": false,
-        "country_code": "SG", "client_ip": clientIp, "gdpr_version": 0,
-        "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend",
-        "ggp_url": MY_IP, "core_url": MY_IP, "core_ip_list": [MY_IP, "0.0.0.0"]
+        "country_code": "SG", "client_ip": clientIp, "ggp_url": MY_IP, "core_url": MY_IP, "core_ip_list": [MY_IP, "0.0.0.0"]
     };
     res.json(verData);
-    console.log(`✅ ver.php sent`);
+    console.log(`✅ [ver.php] sent to ${clientIp}`);
 });
 
-// 🎯 4. MajorLogin (Manual Capture + Python Relay)
+// 🎯 5. MajorLogin (NATIVE NODE.JS RELAY via REALME PROXY)
 app.post('/MajorLogin', async (req, res) => {
-    console.log(`\n🔄 [MajorLogin] Manually Capturing Stream...`);
+    console.log(`\n🔄 [MajorLogin] Capturing Stream...`);
     
     try {
         const rawBody = await collectRawBody(req);
-        if (rawBody.length === 0) {
-            console.error("❌ Empty payload received!");
-            return res.status(200).send(Buffer.alloc(0));
-        }
+        if (rawBody.length === 0) return res.status(200).send(Buffer.alloc(0));
 
-        console.log(`📦 Captured ${rawBody.length} bytes. Launching Python Relay...`);
+        console.log(`📦 Captured ${rawBody.length} bytes. Relaying via Realme V3...`);
 
-        const python = spawn('python3', ['relay.py']);
-        let responseChunks = [];
-        let errorOutput = "";
+        // Remote Request Options (Android Chrome 120 Fingerprint)
+        const options = {
+            hostname: 'loginbp.ggpolarbear.com',
+            port: 443,
+            path: '/MajorLogin',
+            method: 'POST',
+            agent: proxyAgent, // ✅ Uses Realme V3 Mobile Data
+            headers: {
+                'host': 'loginbp.ggpolarbear.com',
+                'content-length': String(rawBody.length),
+                'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'sec-ch-ua-mobile': '?1',
+                'sec-ch-ua-platform': '"Android"',
+                'user-agent': "Mozilla/5.0 (Linux; Android 14; SM-A546B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                'accept': '*/*',
+                'origin': 'null',
+                'sec-fetch-site': 'cross-site',
+                'sec-fetch-mode': 'cors',
+                'sec-fetch-dest': 'empty',
+                'accept-encoding': 'gzip, deflate, br',
+                'accept-language': 'en-US,en;q=0.9',
+                'content-type': 'application/octet-stream'
+            },
+            timeout: 30000
+        };
 
-        python.stdin.write(rawBody);
-        python.stdin.end();
+        const remoteReq = https.request(options, (remoteRes) => {
+            let chunks = [];
+            remoteRes.on('data', (d) => chunks.push(d));
+            remoteRes.on('end', () => {
+                let responseBuffer = Buffer.concat(chunks);
+                
+                // Decompress Gzip if needed
+                const encoding = remoteRes.headers['content-encoding'];
+                if (encoding === 'gzip') {
+                    responseBuffer = zlib.gunzipSync(responseBuffer);
+                } else if (encoding === 'br') {
+                    responseBuffer = zlib.brotliDecompressSync(responseBuffer);
+                }
 
-        python.stdout.on('data', (d) => responseChunks.push(d));
-        python.stderr.on('data', (d) => errorOutput += d);
+                if (remoteRes.statusCode === 200) {
+                    try {
+                        const decoded = LoginResponseMsg.decode(responseBuffer);
+                        console.log(`✅ Success! Garena ID: ${decoded.field1}`);
 
-        python.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`❌ Python Error (Exit ${code}): ${errorOutput}`);
-                return res.status(200).send(Buffer.alloc(0));
-            }
+                        // 🛠️ Patching Data
+                        decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+                        decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+                        decoded.field10 = MY_URL_HTTPS;
 
-            const fullBuffer = Buffer.concat(responseChunks);
-            try {
-                const decoded = LoginResponseMsg.decode(fullBuffer);
-                console.log(`✅ Success! Decoded ID: ${decoded.field1}`);
-
-                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-                decoded.field10 = MY_URL_HTTPS;
-
-                const patched = LoginResponseMsg.encode(decoded).finish();
-                res.setHeader('Content-Type', 'application/octet-stream');
-                res.send(patched);
-                console.log(`🚀 Patched Response Sent!`);
-            } catch (pErr) {
-                console.error(`❌ Decode Error: ${pErr.message}`);
-                res.status(200).send(Buffer.alloc(0));
-            }
+                        const patched = LoginResponseMsg.encode(decoded).finish();
+                        res.setHeader('Content-Type', 'application/octet-stream');
+                        res.send(patched);
+                        console.log(`🚀 Patched Response Sent!`);
+                    } catch (pErr) {
+                        console.error(`❌ Decode Error: ${pErr.message}`);
+                        res.status(200).send(Buffer.alloc(0));
+                    }
+                } else {
+                    console.error(`❌ Garena 503/Blocked! Status: ${remoteRes.statusCode}`);
+                    res.status(200).send(Buffer.alloc(0));
+                }
+            });
         });
 
+        remoteReq.on('error', (e) => {
+            console.error(`❌ Relay Error: ${e.message}`);
+            res.status(200).send(Buffer.alloc(0));
+        });
+
+        remoteReq.write(rawBody);
+        remoteReq.end();
+
     } catch (err) {
-        console.error(`❌ Stream Capture Error: ${err.message}`);
+        console.error(`❌ Fatal Error: ${err.message}`);
         res.status(200).send(Buffer.alloc(0));
     }
 });
@@ -170,15 +199,14 @@ app.post('/MajorLogin', async (req, res) => {
 app.post('/Ping', (req, res) => res.send("OK"));
 app.all('/*splat', (req, res) => res.send("OK"));
 
-// ⚡ 5. Servers
+// ⚡ 6. Servers
 const tcpServer = net.createServer((socket) => {
     console.log(`\n🎮 [TCP] Client: ${socket.remoteAddress}`);
     socket.on('data', (d) => console.log(`[TCP] Received: ${d.length} bytes`));
-    socket.on('error', (e) => console.log(`[TCP Error] ${e.message}`));
 });
 
 tcpServer.listen(TCP_PORT, '0.0.0.0');
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0');
 
-console.log(`\n🔥 SERVER ACTIVE - MANUAL STREAM MODE`);
+console.log(`\n🔥 SERVER ACTIVE - REALME V3 PROXY MODE`);
