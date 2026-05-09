@@ -7,7 +7,7 @@ from curl_cffi import requests as cffi_requests
 
 # ⚙️ CONFIGURATION
 REMOTE_URL = "https://loginbp.ggpolarbear.com/MajorLogin"
-# Realme Tailscale IP - socks5h පාවිච්චි කරන්නේ DNS එකත් ෆෝන් එකෙන්ම යවන්න
+# socks5h පාවිච්චි කරන්නේ DNS එකත් ෆෝන් එකෙන්ම යවන්න
 SOCKS5_PROXY = os.getenv('SOCKS5_PROXY', 'socks5h://100.117.207.88:1080')
 DEBUG = os.getenv('DEBUG', '1') == '1'
 
@@ -42,7 +42,6 @@ def get_android_chrome_120_headers(content_length):
 
 def relay_via_socks5():
     try:
-        # Node.js එකෙන් එවන Body එක කියවීම
         raw_body = sys.stdin.buffer.read()
         body_size = len(raw_body)
 
@@ -52,22 +51,21 @@ def relay_via_socks5():
 
         log(f"Captured {body_size} bytes")
 
-        session = cffi_requests.Session()
-        
-        # ✅ Proxy Keys හරියටම මේ විදියට තියෙන්න ඕනේ (http/https)
-        session.proxies = {
+        # ✅ Proxy Settings - Request එක ඇතුළටම දාන්න හදාගත්තා
+        proxies_config = {
             "http": SOCKS5_PROXY,
-            "https": SOCKS5_PROXY,
+            "https": SOCKS5_PROXY
         }
 
         headers = get_android_chrome_120_headers(body_size)
-        log(f"Forwarding via {SOCKS5_PROXY}...")
+        log(f"Forwarding via {SOCKS5_PROXY} (Phone IP)...")
 
-        # ⚡ Chrome 120 Fingerprint එක impersonate කරනවා
-        response = session.post(
+        # 🚀 503 Bypass එක වෙන්නේ මෙතනින්
+        response = cffi_requests.post(
             REMOTE_URL,
             data=raw_body,
             headers=headers,
+            proxies=proxies_config, # 🔥 මේක තමයි වැඩේ කරන්නේ
             impersonate="chrome120",
             http_version=2,
             timeout=30,
@@ -78,26 +76,22 @@ def relay_via_socks5():
         status = response.status_code
         log(f"Response status: {status}")
 
-        if status == 503:
-            log("Got 503! Cloudflare blocked VPS IP. Check Proxy!", level="ERROR")
-            # මෙතනදී උඹට දැනගන්න පුළුවන් Proxy එක වැඩද නැද්ද කියලා
-            sys.exit(1)
-        elif status != 200:
-            log(f"Non-200 status code: {status}", level="ERROR")
+        if status != 200:
+            log(f"Server returned {status}. Blocked or Error.", level="ERROR")
             sys.exit(1)
 
         content = response.content
         
-        # Content-Encoding එක අනුව Decode කිරීම
+        # Decompression
         encoding = response.headers.get("content-encoding", "").lower()
         if encoding == "gzip":
             content = zlib.decompress(content, 16 + zlib.MAX_WBITS)
-            log("Decompressed gzip response")
+            log("Decompressed gzip")
         elif encoding == "br":
             content = brotli.decompress(content)
-            log("Decompressed brotli response")
+            log("Decompressed brotli")
 
-        # අවසාන Buffer එක Node.js stdout එකට යවනවා
+        # Send to Node.js
         sys.stdout.buffer.write(content)
         sys.stdout.buffer.flush()
 
