@@ -72,7 +72,7 @@ app.use((req, res, next) => {
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
 });
-
+app.get('/ver.php', (req, res) => {
 // Routeapp.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
