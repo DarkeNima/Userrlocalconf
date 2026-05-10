@@ -6,20 +6,21 @@ const path = require('path');
 const net = require('net');
 const protobuf = require('protobufjs');
 
-// 🛠️ Kit Unlocker එක ලින්ක් කිරීම
-const kitUnlocker = require('./kit_unlocker');
-
 const app = express();
 const HTTP_PORT = 80;
 const HTTPS_PORT = 443;
 const TCP_PORT = 7006;
 
+// ⚙️ Configuration
 const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 const TARGET_HOST = 'loginbp.ggpolarbear.com'; 
+const LOG_DIR = path.join(__dirname, 'logs');
 
-// Protobuf Schema Setup
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+
+// Protobuf Schema එක Load කිරීම
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -54,68 +55,52 @@ const root = protobuf.Root.fromJSON({
         }
     }
 });
+
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
-// SSL
+// SSL Certificates
 let sslOptions;
 try {
     sslOptions = {
         key: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/privkey.pem`),
         cert: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/fullchain.pem`)
     };
+    console.log('✅ SSL Certificates loaded');
 } catch (err) {
+    console.error('❌ SSL Error:', err.message);
     process.exit(1);
 }
 
+// Raw Body Capture
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
 });
+
+// 1️⃣ [ver.php]
 app.get('/ver.php', (req, res) => {
-// Routeapp.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
-        "code": 0,
-        "is_server_open": true,
-        "is_firewall_open": false,
-        "cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
-        "backup_cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
-        "abhotupdate_cdn_url": "https://core-tata.freefireind.in/live/ABHotUpdates/",
-        "img_cdn_url": "https://dl-tata.freefireind.in/common/",
-        "login_download_optionalpack": "optionalclothres:shaders|optionalpetres:optionalpetres_commonab_shader|optionallobbyres:",
-        "need_track_hotupdate": true,
-        "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
-        "latest_release_version": "OB53",
-        "min_hint_size": 1,
-        "space_required_in_GB": 1.48,
-        "should_check_ab_load": false,
-        "force_refresh_restype": "optionalavatarres",
-        "remote_version": "1.123.8",
-        "server_url": `${MY_URL_HTTPS}/`, 
-        "is_review_server": false,
-        "use_login_optional_download": true,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
-        "country_code": "SG",
-        "client_ip": clientIp,
-        "gdpr_version": 0,
-        "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend",
-        "ggp_url": MY_IP,
-        "core_url": MY_IP,
-        "core_ip_list": [MY_IP, "0.0.0.0"]
+        "code": 0, "is_server_open": true, "server_url": `${MY_URL_HTTPS}/`, 
+        "country_code": "SG", "client_ip": clientIp, "ggp_url": MY_IP, "core_url": MY_IP, "core_ip_list": [MY_IP, "0.0.0.0"]
     };
-    res.setHeader('Content-Type', 'application/json');
-    res.status(200).json(verData);
-    console.log(`✅ ver.php sent`);
+    res.json(verData);
+    console.log(`✅ [ver.php] sent`);
 });
 
-
+// 2️⃣ [MajorLogin] - LIVE INJECTION (Kit Unlocker Prep)
 app.post('/MajorLogin', (req, res) => {
+    console.log(`\n🎯 [MajorLogin] Captured! Forwarding to Garena...`);
+
     const options = {
-        hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
+        hostname: TARGET_HOST,
+        port: 443,
+        path: '/MajorLogin',
+        method: 'POST',
         headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
     };
+
     const proxyReq = https.request(options, (proxyRes) => {
         const resChunks = [];
         proxyRes.on('data', chunk => resChunks.push(chunk));
@@ -123,31 +108,58 @@ app.post('/MajorLogin', (req, res) => {
             try {
                 const originalBuffer = Buffer.concat(resChunks);
                 const decoded = LoginResponseMsg.decode(originalBuffer);
+                
+                // Redirecting to our local TCP Server for Kit Manipulation
                 decoded.field16 = `${MY_IP}:${TCP_PORT}`;
                 decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+                
                 const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
                 res.setHeader('Content-Type', 'application/octet-stream');
                 res.send(modifiedBuffer);
-            } catch (err) { res.status(500).send("Proxy Error"); }
+                console.log(`✅ Modified Data sent. Game will now connect to TCP:${TCP_PORT}`);
+
+            } catch (err) {
+                console.error(`❌ Injection Failed:`, err.message);
+                res.status(500).send("Proxy Error");
+            }
         });
     });
+
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
-// 🎮 TCP Server - මෙතනදී තමයි kit_unlocker.js එකට data යවන්නේ
+// 3️⃣ [TCP Server] - THE KIT UNLOCKER LOGIC
 const tcpServer = net.createServer((socket) => {
-    console.log(`\n🔥 [TCP] Game Client Connected`);
+    console.log(`\n🔥 [TCP] Game Client Connected: ${socket.remoteAddress}`);
     
     socket.on('data', (data) => {
-        // kit_unlocker.js එකේ තියෙන function එකට data යවනවා
-        kitUnlocker(socket, data);
+        // මේක තමයි Kit Unlocker එකේ හදවත
+        console.log(`\n📦 [TCP Packet] Size: ${data.length} bytes`);
+        
+        // උඹට Item ID එකක් හම්බවුණාම මෙතනින් තමයි ඒක Replace කරන්නේ
+        let modifiedData = Buffer.from(data); 
+        
+        /* මචං, උඹට Sakura ID එක හම්බවුණාම මෙන්න මේ වගේ code එකක් අපි මෙතනට දානවා:
+           const oldID = Buffer.from('SAAD12', 'hex'); // දැනට තියෙන ඇඳුම
+           const newID = Buffer.from('AABB33', 'hex'); // Sakura Bundle
+           if (modifiedData.includes(oldID)) {
+               modifiedData = modifiedData.toString('hex').replace(oldID.toString('hex'), newID.toString('hex'));
+               modifiedData = Buffer.from(modifiedData, 'hex');
+               console.log("💎 Kit Unlocked: Sakura Bundle Injected!");
+           }
+        */
+
+        // දැනට දත්ත නිකන්ම forward කරනවා (Sniffing Mode)
+        socket.write(modifiedData); 
     });
 
     socket.on('close', () => console.log(`[TCP] Connection Closed`));
     socket.on('error', (err) => console.log(`[TCP] Error: ${err.message}`));
 });
 
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 Proxy Running. TCP on ${TCP_PORT}`));
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0');
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server (Kit Unlocker ready) on Port ${TCP_PORT}`));
+
+// HTTP/HTTPS Servers
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
