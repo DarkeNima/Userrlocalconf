@@ -2,91 +2,46 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const net = require('net');
-const protobuf = require('protobufjs');
-const zlib = require('zlib');
-const { spawn } = require('child_process');
+const path = require('path');
 
 const app = express();
 const HTTP_PORT = 80;
 const HTTPS_PORT = 443;
-const TCP_PORT = 7006;
 
+// ⚙️ Configuration
 const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
+const TARGET_HOST = 'loginbp.ggpolarbear.com'; // Real Server එක
+const LOG_DIR = path.join(__dirname, 'logs');
 
-// ✅ Realme V3 Proxy Setup (Tailscale IP)
-const REALME_PROXY = 'socks5://100.117.207.88:1080';
+// Logs ෆෝල්ඩරය සෑදීම
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
-// 🛑 2. Protobuf Schema
-const root = protobuf.Root.fromJSON({
-    nested: {
-        MajorLoginResponse: {
-            fields: {
-                field1: { type: "uint64", id: 1 },
-                field2: { type: "string", id: 2 },
-                field3: { type: "string", id: 3 },
-                field4: { type: "string", id: 4 },
-                field5: { type: "string", id: 5 },
-                field8: { type: "string", id: 8 },
-                field9: { type: "uint32", id: 9 },
-                field10: { type: "string", id: 10 },
-                field15: { type: "Field15Msg", id: 15 },
-                field16: { type: "string", id: 16 },
-                field19: { type: "string", id: 19 },
-                field21: { type: "uint32", id: 21 },
-                field22: { type: "bytes", id: 22 },
-                field23: { type: "bytes", id: 23 },
-                field24: { type: "string", id: 24 },
-                field25: { type: "Field25Msg", id: 25 }
-            }
-        },
-        Field15Msg: { fields: { sub1: { type: "uint32", id: 1 } } },
-        Field25Msg: {
-            fields: {
-                sub1: { type: "string", id: 1 },
-                sub2: { type: "uint32", id: 2 },
-                sub5: { type: "uint32", id: 5 },
-                sub6: { type: "uint32", id: 6 },
-                sub7: { type: "uint32", id: 7 }
-            }
-        }
-    }
-});
-const LoginResponseMsg = root.lookupType("MajorLoginResponse");
-
-// 🔒 3. SSL Certificates
+// 🔒 SSL Certificates (Let's Encrypt)
 let sslOptions;
 try {
     sslOptions = {
         key: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/privkey.pem`),
         cert: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/fullchain.pem`)
     };
-    console.log('✅ SSL loaded successfully');
+    console.log('✅ SSL Certificates loaded successfully');
 } catch (err) {
-    console.error('❌ SSL error:', err.message);
+    console.error('❌ SSL Error: Make sure Let\'s Encrypt is set up correctly!');
     process.exit(1);
 }
 
-app.use(express.json());
-
-// ─── 🛠️ Manual Body Collector ──────────────────────────────────────
-function collectRawBody(req, maxBytes = 2 * 1024 * 1024) {
-    return new Promise((resolve, reject) => {
-        const chunks = [];
-        let totalBytes = 0;
-        req.on('data', (chunk) => {
-            totalBytes += chunk.length;
-            if (totalBytes > maxBytes) { req.destroy(); return reject(new Error('Payload too large')); }
-            chunks.push(chunk);
-        });
-        req.on('end', () => resolve(Buffer.concat(chunks)));
-        req.on('error', reject);
+// 📦 Raw Body Parser (Binary/Protobuf Capture සඳහා)
+app.use((req, res, next) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+        req.rawBody = Buffer.concat(chunks);
+        next();
     });
-}
+});
 
-// 🌐 4. ver.php
+// 1️⃣ [ver.php] - ගේම් එකේ Traffic එක අපේ VPS එකට හරවන තැන
 app.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
@@ -106,88 +61,67 @@ app.get('/ver.php', (req, res) => {
     console.log(`✅ [ver.php] sent to ${clientIp}`);
 });
 
-// 🎯 5. MajorLogin (PYTHON HARDENED RELAY MODE)
-app.post('/MajorLogin', async (req, res) => {
-    console.log(`\n🔄 [MajorLogin] Capturing Stream...`);
-    
-    try {
-        const rawBody = await collectRawBody(req);
-        if (rawBody.length === 0) return res.status(200).send(Buffer.alloc(0));
+// 2️⃣ [MajorLogin] - Direct Forwarding & Binary Logging
+app.post('/MajorLogin', (req, res) => {
+    const timestamp = Date.now();
+    console.log(`\n🎯 [MajorLogin] Intercepted! Size: ${req.rawBody.length} bytes`);
 
-        console.log(`📦 Captured ${rawBody.length} bytes. Spawning Python Relay via Realme V3...`);
+    // ✅ STEP 1: Game එක එවන Request එක සේව් කිරීම (.bin file)
+    const reqPath = path.join(LOG_DIR, `req_${timestamp}.bin`);
+    fs.writeFileSync(reqPath, req.rawBody);
+    console.log(`[→] Game Request Saved: ${reqPath}`);
 
-        // 🚀 Python Relay එක Spawn කිරීම (Environment Variables සමඟ)
-        const python = spawn('python3', ['relay.py'], {
-            env: {
-                ...process.env,
-                SOCKS5_PROXY: REALME_PROXY,
-                DEBUG: '1'
-            }
+    // ✅ STEP 2: Real Server එකට Direct Forward කිරීම
+    const options = {
+        hostname: TARGET_HOST,
+        port: 443,
+        path: '/MajorLogin',
+        method: 'POST',
+        headers: {
+            ...req.headers,
+            'host': TARGET_HOST, // Host එක අනිවාර්යයෙන්ම target එකට මාරු කරන්න ඕනේ
+            'content-length': req.rawBody.length
+        },
+        timeout: 30000
+    };
+
+    const proxyReq = https.request(options, (proxyRes) => {
+        const resChunks = [];
+
+        proxyRes.on('data', chunk => resChunks.push(chunk));
+        
+        proxyRes.on('end', () => {
+            const responseBody = Buffer.concat(resChunks);
+
+            // ✅ STEP 3: Real Server එකෙන් එවන Response එක සේව් කිරීම (.bin file)
+            const resPath = path.join(LOG_DIR, `res_${timestamp}.bin`);
+            fs.writeFileSync(resPath, responseBody);
+            console.log(`[←] Server Response Saved: Status ${proxyRes.statusCode} | ${responseBody.length} bytes`);
+
+            // Game එකට Response එක යැවීම
+            res.writeHead(proxyRes.statusCode, proxyRes.headers);
+            res.end(responseBody);
+            console.log(`✅ Forwarding Complete.`);
         });
+    });
 
-        let responseChunks = [];
-        let errorOutput = "";
+    proxyReq.on('error', (err) => {
+        console.error('❌ Forwarding Error:', err.message);
+        res.status(502).send('Gateway Error');
+    });
 
-        // Payload එක Python stdin එකට යවනවා
-        python.stdin.write(rawBody);
-        python.stdin.end();
-
-        // Python stdout එකෙන් එන Response එක එකතු කරනවා
-        python.stdout.on('data', (chunk) => responseChunks.push(chunk));
-
-        // Python stderr එකෙන් එන Logs එකතු කරනවා (Debug කරන්න)
-        python.stderr.on('data', (chunk) => errorOutput += chunk.toString());
-
-        python.on('close', (code) => {
-            if (code !== 0) {
-                console.error(`❌ Python Relay Failed (Code ${code}):\n${errorOutput}`);
-                return res.status(200).send(Buffer.alloc(0));
-            }
-
-            const fullBuffer = Buffer.concat(responseChunks);
-            console.log(`[PYTHON LOGS]: ${errorOutput.split('\n').pop()}`); // අන්තිම log එක විතරක් පෙන්නන්න
-
-            if (fullBuffer.length > 0) {
-                try {
-                    const decoded = LoginResponseMsg.decode(fullBuffer);
-                    console.log(`✅ Success! Garena ID: ${decoded.field1}`);
-
-                    // 🛠️ Patching Data
-                    decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                    decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-                    decoded.field10 = MY_URL_HTTPS;
-
-                    const patched = LoginResponseMsg.encode(decoded).finish();
-                    res.setHeader('Content-Type', 'application/octet-stream');
-                    res.send(patched);
-                    console.log(`🚀 Patched Response Sent to Game!`);
-                } catch (pErr) {
-                    console.error(`❌ Decode Error: ${pErr.message}`);
-                    res.status(200).send(Buffer.alloc(0));
-                }
-            } else {
-                console.error(`❌ Empty response from Python Relay`);
-                res.status(200).send(Buffer.alloc(0));
-            }
-        });
-
-    } catch (err) {
-        console.error(`❌ Fatal Error: ${err.message}`);
-        res.status(200).send(Buffer.alloc(0));
-    }
+    // Game එකෙන් ආපු raw body එක real server එකට ලියනවා
+    proxyReq.write(req.rawBody);
+    proxyReq.end();
 });
 
+// 3️⃣ [Ping & Others]
 app.post('/Ping', (req, res) => res.send("OK"));
-app.all('/*splat', (req, res) => res.send("OK"));
+app.all('/*', (req, res) => res.send("OK"));
 
-// ⚡ 6. Servers
-const tcpServer = net.createServer((socket) => {
-    console.log(`\n🎮 [TCP] Client: ${socket.remoteAddress}`);
-    socket.on('data', (d) => console.log(`[TCP] Received: ${d.length} bytes`));
-});
+// 🚀 Servers Start කිරීම
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP Logger on port ${HTTP_PORT}`));
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS Logger on port ${HTTPS_PORT}`));
 
-tcpServer.listen(TCP_PORT, '0.0.0.0');
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0');
-
-console.log(`\n🔥 SERVER ACTIVE - HARDENED RELAY MODE (SOCKS5 via REALME V3)`);
+console.log(`\n🔥 DIRECT LOGGING SYSTEM ACTIVE (No Relay Mode)`);
+console.log(`📁 Logs Folder: ${LOG_DIR}`);
