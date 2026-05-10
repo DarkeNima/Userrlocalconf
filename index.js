@@ -8,7 +8,6 @@ const app = express();
 const HTTP_PORT = 80;
 const HTTPS_PORT = 443;
 
-// ⚙️ Configuration
 const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
@@ -17,7 +16,6 @@ const LOG_DIR = path.join(__dirname, 'logs');
 
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
-// 🔒 SSL Certificates
 let sslOptions;
 try {
     sslOptions = {
@@ -30,7 +28,6 @@ try {
     process.exit(1);
 }
 
-// 📦 Raw Body Parser
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
@@ -40,7 +37,7 @@ app.use((req, res, next) => {
     });
 });
 
-// 1️⃣ [ver.php] - Fixed
+// 1️⃣ [ver.php]
 app.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
@@ -63,7 +60,7 @@ app.get('/ver.php', (req, res) => {
 // 2️⃣ [MajorLogin]
 app.post('/MajorLogin', (req, res) => {
     const timestamp = Date.now();
-    console.log(`\n🎯 [MajorLogin] Intercepted! Size: ${req.rawBody.length} bytes`);
+    console.log(`\n🎯 [MajorLogin] Captured: ${req.rawBody.length} bytes`);
 
     const reqPath = path.join(LOG_DIR, `req_${timestamp}.bin`);
     fs.writeFileSync(reqPath, req.rawBody);
@@ -90,27 +87,27 @@ app.post('/MajorLogin', (req, res) => {
             fs.writeFileSync(resPath, responseBody);
             res.writeHead(proxyRes.statusCode, proxyRes.headers);
             res.end(responseBody);
-            console.log(`✅ Forwarding Complete.`);
+            console.log(`✅ Forwarded & Logged!`);
         });
     });
 
     proxyReq.on('error', (err) => {
-        console.error('❌ Forwarding Error:', err.message);
-        res.status(502).send('Gateway Error');
+        console.error('❌ Error:', err.message);
+        res.status(502).send('Error');
     });
 
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
-// 3️⃣ [Ping & Others]
+// 3️⃣ [Ping]
 app.post('/Ping', (req, res) => res.send("OK"));
 
-// ⚠️ මෙන්න මේ කෑල්ල තමයි මම fix කළේ (Wildcard fix)
-app.all('*', (req, res) => {
-    res.send("OK");
+// 🛑 Wildcard (/*) එක වෙනුවට මේක පාවිච්චි කරපං - මේකෙන් කිසිම error එකක් එන්නේ නෑ
+app.use((req, res) => {
+    res.status(200).send("OK");
 });
 
-// 🚀 Start
+// 🚀 Run
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
