@@ -138,14 +138,23 @@ app.post('/MajorLogin', (req, res) => {
                 const originalBuffer = Buffer.concat(resChunks);
                 const decoded = LoginResponseMsg.decode(originalBuffer);
                 
-                // Redirecting to our local TCP Server for Kit Manipulation
+                // 1️⃣ IP එක වෙනස් කිරීම (Redirect to your TCP server)
                 decoded.field16 = `${MY_IP}:${TCP_PORT}`;
                 decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+                
+                // 2️⃣ නම වෙනස් කිරීම (Name Modification)
+                if (decoded.field2) {
+                    console.log(`👤 Original Nickname: ${decoded.field2}`);
+                    decoded.field2 = "Naviya-Server"; // මෙතනට ඔයා කැමති නමක් දෙන්න
+                }
                 
                 const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
                 res.setHeader('Content-Type', 'application/octet-stream');
                 res.send(modifiedBuffer);
-                console.log(`✅ Modified Data sent. Game will now connect to TCP:${TCP_PORT}`);
+                
+                console.log(`✅ Modified Data sent.`);
+                console.log(`🚀 Game will connect to: ${MY_IP}:${TCP_PORT}`);
+                console.log(`🆔 Nickname Injected: ${decoded.field2}`);
 
             } catch (err) {
                 console.error(`❌ Injection Failed:`, err.message);
@@ -157,6 +166,7 @@ app.post('/MajorLogin', (req, res) => {
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
+
 
 // 3️⃣ [TCP Server] - THE KIT UNLOCKER LOGIC
 // 3️⃣ [TCP Server] - THE KIT UNLOCKER LOGIC
