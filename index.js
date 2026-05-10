@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const protobuf = require('protobufjs');
+const { injectKits } = require('./items.js'); // මේක අලුතින් දාන්න
+
 
 const app = express();
 const HTTP_PORT = 80;
@@ -157,33 +159,24 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // 3️⃣ [TCP Server] - THE KIT UNLOCKER LOGIC
+// 3️⃣ [TCP Server] - THE KIT UNLOCKER LOGIC
 const tcpServer = net.createServer((socket) => {
     console.log(`\n🔥 [TCP] Game Client Connected: ${socket.remoteAddress}`);
     
     socket.on('data', (data) => {
-        // මේක තමයි Kit Unlocker එකේ හදවත
         console.log(`\n📦 [TCP Packet] Size: ${data.length} bytes`);
         
-        // උඹට Item ID එකක් හම්බවුණාම මෙතනින් තමයි ඒක Replace කරන්නේ
-        let modifiedData = Buffer.from(data); 
-        
-        /* මචං, උඹට Sakura ID එක හම්බවුණාම මෙන්න මේ වගේ code එකක් අපි මෙතනට දානවා:
-           const oldID = Buffer.from('SAAD12', 'hex'); // දැනට තියෙන ඇඳුම
-           const newID = Buffer.from('AABB33', 'hex'); // Sakura Bundle
-           if (modifiedData.includes(oldID)) {
-               modifiedData = modifiedData.toString('hex').replace(oldID.toString('hex'), newID.toString('hex'));
-               modifiedData = Buffer.from(modifiedData, 'hex');
-               console.log("💎 Kit Unlocked: Sakura Bundle Injected!");
-           }
-        */
+        // items.js එකේ තියෙන logic එක මෙතනදී run වෙනවා
+        let modifiedData = injectKits(data); 
 
-        // දැනට දත්ත නිකන්ම forward කරනවා (Sniffing Mode)
+        // modifiedData එක game එකට යවනවා
         socket.write(modifiedData); 
     });
 
     socket.on('close', () => console.log(`[TCP] Connection Closed`));
     socket.on('error', (err) => console.log(`[TCP] Error: ${err.message}`));
 });
+
 
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server (Kit Unlocker ready) on Port ${TCP_PORT}`));
 
