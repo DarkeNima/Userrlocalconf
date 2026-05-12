@@ -5,7 +5,7 @@ const TARGET_HOST = 'loginbp.ggpolarbear.com';
 const MY_IP = '103.6.168.170';
 const TCP_PORT = 7006;
 
-// වඩාත් ගැලපෙන Schema එකක් හදමු
+// Schema එකේ Field IDs හරියටම තියෙන්න ඕනේ
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -13,12 +13,23 @@ const root = protobuf.Root.fromJSON({
                 field1: { type: "uint64", id: 1 },
                 field2: { type: "string", id: 2 },
                 field3: { type: "string", id: 3 },
+                field4: { type: "string", id: 4 },
+                field5: { type: "string", id: 5 },
+                field8: { type: "string", id: 8 },
+                field9: { type: "uint32", id: 9 },
                 field10: { type: "string", id: 10 },
+                field15: { type: "Field15Msg", id: 15 },
                 field16: { type: "string", id: 16 },
                 field19: { type: "string", id: 19 },
-                field24: { type: "string", id: 24 }
+                field21: { type: "uint32", id: 21 },
+                field22: { type: "bytes", id: 22 },
+                field23: { type: "bytes", id: 23 },
+                field24: { type: "string", id: 24 },
+                field25: { type: "Field25Msg", id: 25 }
             }
-        }
+        },
+        Field15Msg: { fields: { sub1: { type: "uint32", id: 1 } } },
+        Field25Msg: { fields: { sub1: { type: "string", id: 1 }, sub2: { type: "uint32", id: 2 }, sub5: { type: "uint32", id: 5 }, sub6: { type: "uint32", id: 6 }, sub7: { type: "uint32", id: 7 } } }
     }
 });
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
@@ -45,24 +56,24 @@ module.exports = function(app) {
 
                 if (req.url.includes('/MajorLogin')) {
                     try {
-                        // decode කරද්දී loose mode එක පාවිච්චි කරමු
                         const decoded = LoginResponseMsg.decode(buffer);
                         
-                        // Injection logic
+                        // 🔥 මෙතනදී අපි පරණ Token (field2) මාරු කරන්නේ නැහැ.
+                        // ඒක Live ආපු එක ඒ විදිහටම තියෙන්න දෙනවා.
+                        
+                        // IPs සහ TCP Ports විතරක් අපේ එකට හරවනවා
                         decoded.field16 = `${MY_IP}:${TCP_PORT}`;
                         decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-                        decoded.field10 = `https://navivpn.sytes.net`;
-
+                        
+                        // Field 19 එකේ IPs ලැයිස්තුවක් තිබුණොත් ඒකත් අපේ IP එකට හරවනවා
                         if (decoded.field19 && decoded.field19.includes(';')) {
                             decoded.field19 = MY_IP;
                         }
 
                         buffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
-                        console.log(`🎯 [MajorLogin] Injected Successfully!`);
+                        console.log(`🎯 [MajorLogin] Live Injection Done!`);
                     } catch (e) {
-                        // Error එක මොකක්ද කියලා හරියටම බලමු
-                        console.log(`❌ Protobuf Error Detail: ${e.message}`);
-                        // Error එකක් ආවත් පරණ buffer එකම යවනවා ගේම් එක crash නොවී තියාගන්න
+                        console.log(`❌ Protobuf Error: ${e.message}`);
                     }
                 }
 
