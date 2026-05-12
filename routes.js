@@ -29,16 +29,20 @@ const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 module.exports = function(app) {
 
     app.all(/.*/, (req, res) => {
-        // ver.php එක index.js එකේ තියෙන නිසා මෙතනදී ඒක skip කරනවා
-        if (req.url.includes('/ver.php')) return;
+        // 🚨 DEBUG: හැම request එකක්ම log කරමු මොකක්ද වෙන්නේ කියලා බලන්න
+        console.log(`🔍 [INCOMING] ${req.method} ${req.url}`);
 
         let host = TARGET_HOST;
-        if (req.url.includes('Account') || req.url.includes('GetLoginData')) {
+        // Account හෝ GetLoginData එන්නේ clientbp එකට
+        if (req.url.includes('Account') || req.url.includes('GetLoginData') || req.url.includes('Component')) {
             host = 'clientbp.ggpolarbear.com';
         }
 
         const options = {
-            hostname: host, port: 443, path: req.url, method: req.method,
+            hostname: host,
+            port: 443,
+            path: req.url,
+            method: req.method,
             headers: { ...req.headers, 'host': host }
         };
 
@@ -56,13 +60,13 @@ module.exports = function(app) {
                         decoded.field24 = `${MY_IP}:${TCP_PORT}`;
                         buffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
                         console.log(`🎯 [MajorLogin] Injected TCP Target: ${MY_IP}:${TCP_PORT}`);
-                    } catch (e) { console.log("❌ Protobuf Error"); }
+                    } catch (e) { console.log("❌ Protobuf Error in MajorLogin"); }
                 }
 
                 // --- 📦 GetLoginData Sniper ---
                 if (req.url.includes('GetLoginData')) {
-                    console.log(`\n📦 [GetLoginData] Captured!`);
-                    console.log(`📝 HEX: ${buffer.toString('hex').substring(0, 100)}...`);
+                    console.log(`\n✅ [SUCCESS] GetLoginData Captured! (${buffer.length} bytes)`);
+                    console.log(`📝 HEX: ${buffer.toString('hex').substring(0, 200)}`);
                 }
 
                 Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
@@ -70,7 +74,11 @@ module.exports = function(app) {
             });
         });
 
-        proxyReq.on('error', (e) => res.status(500).send(""));
+        proxyReq.on('error', (e) => {
+            console.log(`❌ Proxy Connection Error: ${e.message}`);
+            res.status(500).send("");
+        });
+
         if (req.rawBody) proxyReq.write(req.rawBody);
         proxyReq.end();
     });
