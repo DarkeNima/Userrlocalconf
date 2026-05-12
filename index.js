@@ -127,8 +127,9 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // 🔄 [Catch-All Proxy] - FIX: Use '(.*)' for Express 5 catch-all
-app.all('(.*)', (req, res) => {
-    // Avoid double handling
+// 🔄 [Catch-All Proxy] - ඕනෑම Request එකක් අල්ලගන්න Regex පාවිච්චි කරමු
+app.all(/.*/, (req, res) => {
+    // මේ ලයින් එක අනිවාර්යයි, නැත්නම් ලූප් එකක් වෙන්න පුළුවන්
     if (req.url.includes('/MajorLogin') || req.url.includes('/ver.php')) return;
 
     console.log(`➡️ [Forwarding] ${req.url} to Garena Server`);
@@ -164,6 +165,8 @@ app.all('(.*)', (req, res) => {
     if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
 });
+
+
 
 // 3️⃣ [TCP Server - Kit Unlocker]
 const tcpServer = net.createServer((socket) => {
