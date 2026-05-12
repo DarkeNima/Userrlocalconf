@@ -60,6 +60,7 @@ try {
         key: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/privkey.pem`),
         cert: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/fullchain.pem`)
     };
+    console.log('✅ SSL Certificates loaded.');
 } catch (err) {
     console.error('❌ SSL Error:', err.message);
     process.exit(1);
@@ -98,9 +99,9 @@ app.get('/ver.php', (req, res) => {
     res.status(200).json(verData);
 });
 
-// 2️⃣ [MajorLogin] - මෙතනදී IP එක Inject කරනවා
+// 2️⃣ [MajorLogin]
 app.post('/MajorLogin', (req, res) => {
-    console.log(`🎯 [MajorLogin] Modifying...`);
+    console.log(`🎯 [MajorLogin] Modifying for Injection...`);
     const options = {
         hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
         headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
@@ -125,18 +126,23 @@ app.post('/MajorLogin', (req, res) => {
     proxyReq.end();
 });
 
-// 🔄 [Catch-All Proxy] - Ping, ClientReport වගේ අනිත් හැම රික්වෙස්ට් එකක්ම ඇත්තම සර්වර් එකට යවලා එන උත්තරේ දෙනවා!
-app.all('*', (req, res) => {
-    if (req.url === '/MajorLogin' || req.url.includes('/ver.php')) return; // මේවා උඩින් handle කරා
+// 🔄 [Catch-All Proxy] - FIX: Use '(.*)' for Express 5 catch-all
+app.all('(.*)', (req, res) => {
+    // Avoid double handling
+    if (req.url.includes('/MajorLogin') || req.url.includes('/ver.php')) return;
 
-    console.log(`➡️ [Forwarding] ${req.url} to Official Server`);
+    console.log(`➡️ [Forwarding] ${req.url} to Garena Server`);
     
     const options = {
         hostname: TARGET_HOST,
         port: 443,
         path: req.url,
         method: req.method,
-        headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody ? req.rawBody.length : 0 }
+        headers: { 
+            ...req.headers, 
+            'host': TARGET_HOST, 
+            'content-length': req.rawBody ? req.rawBody.length : 0 
+        }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
@@ -144,17 +150,14 @@ app.all('*', (req, res) => {
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(resChunks);
-            // ඔරිජිනල් Headers ම පාවිච්චි කරනවා
-            Object.keys(proxyRes.headers).forEach(key => {
-                res.setHeader(key, proxyRes.headers[key]);
-            });
+            Object.keys(proxyRes.headers).forEach(key => res.setHeader(key, proxyRes.headers[key]));
             res.status(proxyRes.statusCode).send(buffer);
-            console.log(`✅ [${req.url}] Sent real response (${buffer.length} bytes) back to game.`);
+            console.log(`✅ [${req.url}] Success (${buffer.length} bytes)`);
         });
     });
 
     proxyReq.on('error', err => {
-        console.log(`❌ Proxy Error on ${req.url}: ${err.message}`);
+        console.log(`❌ Proxy Error [${req.url}]: ${err.message}`);
         res.status(500).send("");
     });
     
@@ -165,10 +168,10 @@ app.all('*', (req, res) => {
 // 3️⃣ [TCP Server - Kit Unlocker]
 const tcpServer = net.createServer((socket) => {
     const remoteAddr = socket.remoteAddress;
-    console.log(`\n🔥 [TCP] GAME CONNECTED TO PROXY! From: ${remoteAddr} 🔥`);
+    console.log(`\n🔥 [TCP] GAME CONNECTED! Client: ${remoteAddr} 🔥`);
     
     socket.on('data', (data) => {
-        console.log(`📦 [TCP Data] Size: ${data.length} bytes`);
+        console.log(`📦 [TCP Data] ${data.length} bytes received`);
         socket.write(data); 
     });
 
@@ -176,7 +179,7 @@ const tcpServer = net.createServer((socket) => {
     socket.on('error', (err) => console.log(`[TCP Error] ${err.message}`));
 });
 
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on ${TCP_PORT}`));
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server (Kit Unlocker) on ${TCP_PORT}`));
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0');
-console.log(`✅ Ready for Traffic!`);
+console.log(`✅ Proxy Ready & Monitoring...`);
