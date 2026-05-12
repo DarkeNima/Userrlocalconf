@@ -1,27 +1,25 @@
 const https = require('https');
 const fs = require('fs');
 
-const TARGET_HOST = 'clientbp.ggpolarbear.com';
-
 module.exports = function(app) {
     app.all(/.*/, (req, res) => {
         if (req.url.includes('/ver.php')) return;
 
-        // 🔍 රික්වෙස්ට් එක එන තැන අනුව ටාගට් එක තෝරමු
-        let host = req.url.includes('GetLoginData') ? 'clientbp.ggpolarbear.com' : 'loginbp.ggpolarbear.com';
-        
-        console.log(`📡 [PROXY] Sending to ${host}${req.url}`);
+        // 🔍 රික්වෙස්ට් එක යන හොස්ට් එක තෝරමු
+        let targetHost = req.url.includes('Account') || req.url.includes('GetLoginData') 
+                         ? 'clientbp.ggpolarbear.com' 
+                         : 'loginbp.ggpolarbear.com';
+
+        console.log(`📡 [TRAFFIC] ${req.method} -> ${targetHost}${req.url}`);
 
         const options = {
-            hostname: host,
+            hostname: targetHost,
             port: 443,
             path: req.url,
             method: req.method,
             headers: {
                 ...req.headers,
-                'host': host,
-                // 🔥 ගරේනා එකෙන් Token එක චෙක් කරන නිසා මේක අනිවාර්යයි
-                'authorization': req.headers['authorization'] 
+                'host': targetHost // මේක අනිවාර්යයෙන්ම targetHost වෙන්න ඕනේ
             }
         };
 
@@ -31,10 +29,10 @@ module.exports = function(app) {
             proxyRes.on('end', () => {
                 let buffer = Buffer.concat(resChunks);
 
-                // ✅ මෙන්න මෙතනදී තමයි ඇත්තම Account Data ටික අහුවෙන්නේ
+                // ✅ ඇත්තම දත්ත මල්ල මෙතනදී සේව් කරගමු
                 if (req.url.includes('GetLoginData') && proxyRes.statusCode === 200) {
-                    console.log(`💎 [SUCCESS] Real Account Data Captured!`);
-                    fs.writeFileSync('real_data_structure.bin', buffer);
+                    console.log(`💎 [SUCCESS] Captured Real Account Data Structure!`);
+                    fs.writeFileSync('real_account_structure.bin', buffer);
                 }
 
                 Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
