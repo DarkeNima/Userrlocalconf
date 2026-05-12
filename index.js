@@ -101,11 +101,12 @@ app.get('/ver.php', (req, res) => {
 
 // 2️⃣ [MajorLogin]
 app.post('/MajorLogin', (req, res) => {
-    console.log(`🎯 [MajorLogin] Modifying for Injection...`);
+    console.log(`🎯 [MajorLogin] High-Level Injection Starting...`);
     const options = {
         hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
         headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
     };
+
     const proxyReq = https.request(options, (proxyRes) => {
         const resChunks = [];
         proxyRes.on('data', chunk => resChunks.push(chunk));
@@ -113,17 +114,35 @@ app.post('/MajorLogin', (req, res) => {
             try {
                 const originalBuffer = Buffer.concat(resChunks);
                 const decoded = LoginResponseMsg.decode(originalBuffer);
-                // BigInt තියෙන නිසා JSON.stringify එකට මේ විදිහට දාන්න ඕනේ
-console.log("🔍 [Full Decoded Data]:", JSON.stringify(decoded, (key, value) => 
-    typeof value === 'bigint' ? value.toString() : value, 2));
 
-                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+                // 1️⃣ Client BP URL එක අපේ Domain එකට හරවමු
+                if (decoded.field10) {
+                    decoded.field10 = MY_URL_HTTPS; 
+                    console.log(`💉 Field10 (Backend) Redirected to: ${MY_URL_HTTPS}`);
+                }
+
+                // 2️⃣ TCP ලිස්ට් එකට අපේ IP එකම කිහිප සැරයක් බලෙන් ඔබමු (Semicolon Format එකට)
+                // ගේම් එකට පැනලා යන්න බැරි වෙන්න පාරවල් ඔක්කොම වහමු
+                const myTarget = `${MY_IP}:${TCP_PORT}`;
+                const multiTarget = `${myTarget};${myTarget};${MY_IP};${MY_IP}`;
+                
+                decoded.field16 = multiTarget;
+                decoded.field24 = multiTarget;
+
+                console.log(`💉 TCP Targets Injected: ${multiTarget}`);
+
+                // 3️⃣ තව සැක සහිත fields තිබුණොත් ඒවාත් මාරු කරමු
+                if (decoded.field19) decoded.field19 = "Sri Lanka"; // නිකන් ආතල් එකට
+
                 const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
                 res.setHeader('Content-Type', 'application/octet-stream');
                 res.send(modifiedBuffer);
-                console.log(`💉 Injected TCP Target: ${decoded.field16}`);
-            } catch (err) { res.status(500).send(""); }
+                console.log(`✅ [MajorLogin] Fully Modified Payload Sent!`);
+
+            } catch (err) {
+                console.error("❌ Injection Fail:", err.message);
+                res.status(500).send("");
+            }
         });
     });
     proxyReq.write(req.rawBody);
