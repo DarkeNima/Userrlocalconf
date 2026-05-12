@@ -156,6 +156,16 @@ app.post('/MajorLogin', (req, res) => {
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
+// 🎮 [Ping Bypass] - ගේම් එකෙන් එවන Ping එකට බොරු උත්තරයක් යවමු
+app.post('/Ping', (req, res) => {
+    console.log(`🏓 [Ping] Captured! Sending 200 OK to keep game alive.`);
+    res.status(200).send(""); 
+});
+
+// තව පොඩි request එකක් එනවා සමහර වෙලාවට, ඒකත් බයිපාස් කරමු
+app.post('/ClientReport', (req, res) => {
+    res.status(200).send("");
+});
 
 // 3️⃣ [TCP Server - Kit Unlocker]
 const tcpServer = net.createServer((socket) => {
