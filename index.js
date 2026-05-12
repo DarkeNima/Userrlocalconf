@@ -60,129 +60,123 @@ try {
         key: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/privkey.pem`),
         cert: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/fullchain.pem`)
     };
-    console.log('✅ SSL Certificates loaded successfully.');
 } catch (err) {
     console.error('❌ SSL Error:', err.message);
     process.exit(1);
 }
 
-// Global Logging Middleware
+// Global Logging & Raw Body Capture
 app.use((req, res, next) => {
-    console.log(`\n🌐 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url} from ${req.ip}`);
+    console.log(`\n🌐 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
 });
 
-// 1️⃣ [ver.php] - FULL VERSION DATA
+// 1️⃣ [ver.php]
 app.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
-    
     const verData = {
-        "code": 0,
-        "is_server_open": true,
-        "is_firewall_open": false,
+        "code": 0, "is_server_open": true, "is_firewall_open": false,
         "cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
         "backup_cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
         "abhotupdate_cdn_url": "https://core-tata.freefireind.in/live/ABHotUpdates/",
         "img_cdn_url": "https://dl-tata.freefireind.in/common/",
         "login_download_optionalpack": "optionalclothres:shaders|optionalpetres:optionalpetres_commonab_shader|optionallobbyres:",
-        "need_track_hotupdate": true,
-        "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
-        "latest_release_version": "OB53",
-        "min_hint_size": 1,
-        "space_required_in_GB": 1.48,
-        "should_check_ab_load": false,
-        "force_refresh_restype": "optionalavatarres",
+        "need_track_hotupdate": true, "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
+        "latest_release_version": "OB53", "min_hint_size": 1, "space_required_in_GB": 1.48,
+        "should_check_ab_load": false, "force_refresh_restype": "optionalavatarres",
         "remote_version": "1.123.8",
         "server_url": `${MY_URL_HTTPS}/`, 
-        "is_review_server": false,
-        "use_login_optional_download": true,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
-        "country_code": "SG",
-        "client_ip": clientIp,
-        "gdpr_version": 0,
+        "is_review_server": false, "use_login_optional_download": true,
+        "use_background_download": false, "use_background_download_lobby": false,
+        "country_code": "SG", "client_ip": clientIp, "gdpr_version": 0,
         "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend",
-        "ggp_url": MY_IP,
-        "core_url": MY_IP,
-        "core_ip_list": [MY_IP, "0.0.0.0"]
+        "ggp_url": MY_IP, "core_url": MY_IP, "core_ip_list": [MY_IP, "0.0.0.0"]
     };
-
     res.setHeader('Content-Type', 'application/json');
     res.status(200).json(verData);
-    console.log(`✅ [ver.php] Fully Sent to ${clientIp}`);
 });
 
-// 2️⃣ [MajorLogin]
+// 2️⃣ [MajorLogin] - මෙතනදී IP එක Inject කරනවා
 app.post('/MajorLogin', (req, res) => {
-    console.log(`🎯 [MajorLogin] Detected! Forwarding...`);
-
+    console.log(`🎯 [MajorLogin] Modifying...`);
     const options = {
-        hostname: TARGET_HOST,
-        port: 443,
-        path: '/MajorLogin',
-        method: 'POST',
+        hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
         headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
     };
-
     const proxyReq = https.request(options, (proxyRes) => {
         const resChunks = [];
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             try {
                 const originalBuffer = Buffer.concat(resChunks);
-                console.log(`[←] Received ${originalBuffer.length} bytes from Official Server`);
-
                 const decoded = LoginResponseMsg.decode(originalBuffer);
-                
-                // INJECTION: Redirecting game to our TCP Server
                 decoded.field16 = `${MY_IP}:${TCP_PORT}`;
                 decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-                
-                console.log(`💉 Injected TCP: ${decoded.field16}`);
-
                 const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
                 res.setHeader('Content-Type', 'application/octet-stream');
                 res.send(modifiedBuffer);
-                console.log(`✅ [MajorLogin] Payload Sent!`);
-            } catch (err) {
-                console.error(`❌ [MajorLogin] Error:`, err.message);
-                res.status(500).send("Proxy Error");
-            }
+                console.log(`💉 Injected TCP Target: ${decoded.field16}`);
+            } catch (err) { res.status(500).send(""); }
         });
     });
-
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
-// 🎮 [Ping Bypass] - ගේම් එකෙන් එවන Ping එකට බොරු උත්තරයක් යවමු
-app.post('/Ping', (req, res) => {
-    console.log(`🏓 [Ping] Captured! Sending 200 OK to keep game alive.`);
-    res.status(200).send(""); 
-});
 
-// තව පොඩි request එකක් එනවා සමහර වෙලාවට, ඒකත් බයිපාස් කරමු
-app.post('/ClientReport', (req, res) => {
-    res.status(200).send("");
+// 🔄 [Catch-All Proxy] - Ping, ClientReport වගේ අනිත් හැම රික්වෙස්ට් එකක්ම ඇත්තම සර්වර් එකට යවලා එන උත්තරේ දෙනවා!
+app.all('*', (req, res) => {
+    if (req.url === '/MajorLogin' || req.url.includes('/ver.php')) return; // මේවා උඩින් handle කරා
+
+    console.log(`➡️ [Forwarding] ${req.url} to Official Server`);
+    
+    const options = {
+        hostname: TARGET_HOST,
+        port: 443,
+        path: req.url,
+        method: req.method,
+        headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody ? req.rawBody.length : 0 }
+    };
+
+    const proxyReq = https.request(options, (proxyRes) => {
+        const resChunks = [];
+        proxyRes.on('data', chunk => resChunks.push(chunk));
+        proxyRes.on('end', () => {
+            const buffer = Buffer.concat(resChunks);
+            // ඔරිජිනල් Headers ම පාවිච්චි කරනවා
+            Object.keys(proxyRes.headers).forEach(key => {
+                res.setHeader(key, proxyRes.headers[key]);
+            });
+            res.status(proxyRes.statusCode).send(buffer);
+            console.log(`✅ [${req.url}] Sent real response (${buffer.length} bytes) back to game.`);
+        });
+    });
+
+    proxyReq.on('error', err => {
+        console.log(`❌ Proxy Error on ${req.url}: ${err.message}`);
+        res.status(500).send("");
+    });
+    
+    if (req.rawBody) proxyReq.write(req.rawBody);
+    proxyReq.end();
 });
 
 // 3️⃣ [TCP Server - Kit Unlocker]
 const tcpServer = net.createServer((socket) => {
     const remoteAddr = socket.remoteAddress;
-    console.log(`\n🔥 [TCP] Game Client Connected: ${remoteAddr}`);
+    console.log(`\n🔥 [TCP] GAME CONNECTED TO PROXY! From: ${remoteAddr} 🔥`);
     
     socket.on('data', (data) => {
-        console.log(`📦 [TCP Packet] Size: ${data.length} bytes`);
-        // Kit modification logic goes here
+        console.log(`📦 [TCP Data] Size: ${data.length} bytes`);
         socket.write(data); 
     });
 
-    socket.on('close', () => console.log(`[TCP] Connection Closed: ${remoteAddr}`));
+    socket.on('close', () => console.log(`[TCP] Closed: ${remoteAddr}`));
     socket.on('error', (err) => console.log(`[TCP Error] ${err.message}`));
 });
 
-// Start Servers
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on ${TCP_PORT}`));
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0');
+console.log(`✅ Ready for Traffic!`);
