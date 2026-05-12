@@ -126,6 +126,7 @@ app.post('/MajorLogin', (req, res) => {
 
 // 🔄 [Catch-All Proxy]
 // 🔄 [Catch-All Proxy - With Data Capture]
+// 🔄 [Catch-All Proxy - GetLoginData Sniper]
 app.all(/.*/, (req, res) => {
     if (req.url.includes('/MajorLogin') || req.url.includes('/ver.php')) return;
 
@@ -146,13 +147,28 @@ app.all(/.*/, (req, res) => {
         const resChunks = [];
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
-            const buffer = Buffer.concat(resChunks);
+            let buffer = Buffer.concat(resChunks);
             
-            // 🔍 මෙතනදී අපි GetLoginData එකේ දත්ත හොරෙන් බලමු
+            // 🎯 GetLoginData එක අහු වුණාම කරන සෙල්ලම
             if (req.url.includes('GetLoginData')) {
-                console.log(`\n📦 [GetLoginData Response Captured] Length: ${buffer.length} bytes`);
-                // මේක Protobuf නිසා කෙලින්ම කියවන්න අමාරුයි, ඒත් අපි HEX එක බලමු
-                console.log(`📝 Hex Data: ${buffer.toString('hex').substring(0, 200)}...`);
+                console.log(`\n📦 [GetLoginData] Data Length: ${buffer.length} bytes`);
+                
+                // අපි බලමු මේ buffer එක අස්සේ ගරේනාගේ පරණ IP එක (34.87... වගේ ඒවා) තියෙනවද කියලා
+                // තිබුණොත් ඒ හැම තැනම අපේ IP එක බලෙන් ඔබමු
+                let hexString = buffer.toString('hex');
+                
+                // උඹේ ලොග් එකේ කලින් තිබුණ IP එකක්: 34.126.76.45 (Hex: 32342e3132362e37362e3435)
+                // මේකේ strings විදිහට IPs තියෙනවා නම් හොයන්න ලේසියි
+                const dataString = buffer.toString('utf-8');
+                if (dataString.includes('freefiremobile.com') || dataString.includes('34.')) {
+                    console.log("⚠️ [Found] Garena IPs/Domains in GetLoginData!");
+                    
+                    // Brute-force replacement (පරිස්සමෙන් කරන්න ඕනේ)
+                    // මේකෙන් වෙන්නේ buffer එක අස්සේ තියෙන ඕනෑම "34." වලින් පටන් ගන්න IP එකක් අපේ එකට මාරු කරන එක
+                    // හැබැයි structure එක කැඩෙන්න පුළුවන් නිසා අපි ඉස්සෙල්ලා ලොග් එක බලමු.
+                }
+                
+                console.log(`📝 GetLoginData HEX: ${hexString.substring(0, 300)}`);
             }
 
             Object.keys(proxyRes.headers).forEach(key => res.setHeader(key, proxyRes.headers[key]));
@@ -164,6 +180,7 @@ app.all(/.*/, (req, res) => {
     if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
 });
+
 
 
 // 3️⃣ [TCP Server]
