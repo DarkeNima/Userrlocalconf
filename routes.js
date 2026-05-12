@@ -5,7 +5,7 @@ const TARGET_HOST = 'loginbp.ggpolarbear.com';
 const MY_IP = '103.6.168.170';
 const TCP_PORT = 7006;
 
-// Protobuf Setup
+// Protobuf Setup - Field 10 සහ Field 19 හරියටම අල්ලමු
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -29,20 +29,15 @@ const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 module.exports = function(app) {
 
     app.all(/.*/, (req, res) => {
-        // 🚨 DEBUG: හැම request එකක්ම log කරමු මොකක්ද වෙන්නේ කියලා බලන්න
         console.log(`🔍 [INCOMING] ${req.method} ${req.url}`);
 
         let host = TARGET_HOST;
-        // Account හෝ GetLoginData එන්නේ clientbp එකට
         if (req.url.includes('Account') || req.url.includes('GetLoginData') || req.url.includes('Component')) {
             host = 'clientbp.ggpolarbear.com';
         }
 
         const options = {
-            hostname: host,
-            port: 443,
-            path: req.url,
-            method: req.method,
+            hostname: host, port: 443, path: req.url, method: req.method,
             headers: { ...req.headers, 'host': host }
         };
 
@@ -56,17 +51,33 @@ module.exports = function(app) {
                 if (req.url.includes('/MajorLogin')) {
                     try {
                         const decoded = LoginResponseMsg.decode(buffer);
-                        decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                        decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+                        const myTarget = `${MY_IP}:${TCP_PORT}`;
+
+                        // 1. TCP Redirection
+                        decoded.field16 = myTarget;
+                        decoded.field24 = myTarget;
+
+                        // 2. Auth/Account URL Injection (Field 10)
+                        [span_1](start_span)// bin එකේ තිබුණේ: authsrv1.androidsrvs.com වගේ ඒවා[span_1](end_span)
+                        decoded.field10 = `https://navivpn.sytes.net`;
+
+                        // 3. IP List Redirection (Field 19)
+                        [span_2](start_span)// bin එකේ තිබුණ IPs ලැයිස්තුව වෙනුවට අපේ IP එක බලෙන් ඔබමු[span_2](end_span)
+                        if (decoded.field19 && decoded.field19.includes(';')) {
+                            decoded.field19 = MY_IP;
+                            console.log("💉 [Field 19] Injected our IP over Garena IP List");
+                        }
+
                         buffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
-                        console.log(`🎯 [MajorLogin] Injected TCP Target: ${MY_IP}:${TCP_PORT}`);
-                    } catch (e) { console.log("❌ Protobuf Error in MajorLogin"); }
+                        console.log(`🎯 [MajorLogin] Full Injection Done (TCP, Field 10, Field 19)`);
+                    } catch (e) { 
+                        console.log("❌ Protobuf Error in MajorLogin Injection"); 
+                    }
                 }
 
                 // --- 📦 GetLoginData Sniper ---
                 if (req.url.includes('GetLoginData')) {
-                    console.log(`\n✅ [SUCCESS] GetLoginData Captured! (${buffer.length} bytes)`);
-                    console.log(`📝 HEX: ${buffer.toString('hex').substring(0, 200)}`);
+                    console.log(`✅ [SUCCESS] GetLoginData Captured!`);
                 }
 
                 Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
