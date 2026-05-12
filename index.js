@@ -125,17 +125,20 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // 🔄 [Catch-All Proxy]
+// 🔄 [Catch-All Proxy - With Data Capture]
 app.all(/.*/, (req, res) => {
     if (req.url.includes('/MajorLogin') || req.url.includes('/ver.php')) return;
 
     let finalTarget = TARGET_HOST;
-    // Account data request එක එන්නේ clientbp එකට
     if (req.url.includes('Account') || req.url.includes('GetLoginData')) {
         finalTarget = 'clientbp.ggpolarbear.com';
     }
 
     const options = {
-        hostname: finalTarget, port: 443, path: req.url, method: req.method,
+        hostname: finalTarget,
+        port: 443,
+        path: req.url,
+        method: req.method,
         headers: { ...req.headers, 'host': finalTarget }
     };
 
@@ -144,6 +147,14 @@ app.all(/.*/, (req, res) => {
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(resChunks);
+            
+            // 🔍 මෙතනදී අපි GetLoginData එකේ දත්ත හොරෙන් බලමු
+            if (req.url.includes('GetLoginData')) {
+                console.log(`\n📦 [GetLoginData Response Captured] Length: ${buffer.length} bytes`);
+                // මේක Protobuf නිසා කෙලින්ම කියවන්න අමාරුයි, ඒත් අපි HEX එක බලමු
+                console.log(`📝 Hex Data: ${buffer.toString('hex').substring(0, 200)}...`);
+            }
+
             Object.keys(proxyRes.headers).forEach(key => res.setHeader(key, proxyRes.headers[key]));
             res.status(proxyRes.statusCode).send(buffer);
         });
@@ -153,6 +164,7 @@ app.all(/.*/, (req, res) => {
     if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
 });
+
 
 // 3️⃣ [TCP Server]
 const tcpServer = net.createServer((socket) => {
