@@ -113,6 +113,10 @@ app.post('/MajorLogin', (req, res) => {
             try {
                 const originalBuffer = Buffer.concat(resChunks);
                 const decoded = LoginResponseMsg.decode(originalBuffer);
+                // BigInt තියෙන නිසා JSON.stringify එකට මේ විදිහට දාන්න ඕනේ
+console.log("🔍 [Full Decoded Data]:", JSON.stringify(decoded, (key, value) => 
+    typeof value === 'bigint' ? value.toString() : value, 2));
+
                 decoded.field16 = `${MY_IP}:${TCP_PORT}`;
                 decoded.field24 = `${MY_IP}:${TCP_PORT}`;
                 const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
