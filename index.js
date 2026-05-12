@@ -151,20 +151,27 @@ app.post('/MajorLogin', (req, res) => {
 
 // 🔄 [Catch-All Proxy] - FIX: Use '(.*)' for Express 5 catch-all
 // 🔄 [Catch-All Proxy] - ඕනෑම Request එකක් අල්ලගන්න Regex පාවිච්චි කරමු
+// 🔄 [Catch-All Proxy - Improved]
 app.all(/.*/, (req, res) => {
-    // මේ ලයින් එක අනිවාර්යයි, නැත්නම් ලූප් එකක් වෙන්න පුළුවන්
     if (req.url.includes('/MajorLogin') || req.url.includes('/ver.php')) return;
 
-    console.log(`➡️ [Forwarding] ${req.url} to Garena Server`);
+    // 🎯 Request එක එන URL එක අනුව Target එක තීරණය කරමු
+    // clientbp requests ආවොත් ඒවා clientbp.ggpolarbear.com එකට යවන්න ඕනේ
+    let finalTarget = TARGET_HOST;
+    if (req.url.includes('Account') || req.url.includes('Config')) {
+        finalTarget = 'clientbp.ggpolarbear.com';
+    }
+
+    console.log(`➡️ [Forwarding] ${req.url} to ${finalTarget}`);
     
     const options = {
-        hostname: TARGET_HOST,
+        hostname: finalTarget,
         port: 443,
         path: req.url,
         method: req.method,
         headers: { 
             ...req.headers, 
-            'host': TARGET_HOST, 
+            'host': finalTarget, 
             'content-length': req.rawBody ? req.rawBody.length : 0 
         }
     };
@@ -176,19 +183,17 @@ app.all(/.*/, (req, res) => {
             const buffer = Buffer.concat(resChunks);
             Object.keys(proxyRes.headers).forEach(key => res.setHeader(key, proxyRes.headers[key]));
             res.status(proxyRes.statusCode).send(buffer);
-            console.log(`✅ [${req.url}] Success (${buffer.length} bytes)`);
         });
     });
 
     proxyReq.on('error', err => {
-        console.log(`❌ Proxy Error [${req.url}]: ${err.message}`);
+        console.log(`❌ Proxy Error: ${err.message}`);
         res.status(500).send("");
     });
     
     if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
 });
-
 
 
 // 3️⃣ [TCP Server - Kit Unlocker]
