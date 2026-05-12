@@ -5,34 +5,30 @@ const TARGET_HOST = 'loginbp.ggpolarbear.com';
 const MY_IP = '103.6.168.170';
 const TCP_PORT = 7006;
 
-// Protobuf Setup - Field 10 සහ Field 19 හරියටම අල්ලමු
+// වඩාත් ගැලපෙන Schema එකක් හදමු
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
             fields: {
-                field1: { type: "uint64", id: 1 }, field2: { type: "string", id: 2 },
-                field3: { type: "string", id: 3 }, field4: { type: "string", id: 4 },
-                field5: { type: "string", id: 5 }, field8: { type: "string", id: 8 },
-                field9: { type: "uint32", id: 9 }, field10: { type: "string", id: 10 },
-                field15: { type: "Field15Msg", id: 15 }, field16: { type: "string", id: 16 },
-                field19: { type: "string", id: 19 }, field21: { type: "uint32", id: 21 },
-                field22: { type: "bytes", id: 22 }, field23: { type: "bytes", id: 23 },
-                field24: { type: "string", id: 24 }, field25: { type: "Field25Msg", id: 25 }
+                field1: { type: "uint64", id: 1 },
+                field2: { type: "string", id: 2 },
+                field3: { type: "string", id: 3 },
+                field10: { type: "string", id: 10 },
+                field16: { type: "string", id: 16 },
+                field19: { type: "string", id: 19 },
+                field24: { type: "string", id: 24 }
             }
-        },
-        Field15Msg: { fields: { sub1: { type: "uint32", id: 1 } } },
-        Field25Msg: { fields: { sub1: { type: "string", id: 1 }, sub2: { type: "uint32", id: 2 }, sub5: { type: "uint32", id: 5 }, sub6: { type: "uint32", id: 6 }, sub7: { type: "uint32", id: 7 } } }
+        }
     }
 });
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
 module.exports = function(app) {
-
     app.all(/.*/, (req, res) => {
         console.log(`🔍 [INCOMING] ${req.method} ${req.url}`);
 
         let host = TARGET_HOST;
-        if (req.url.includes('Account') || req.url.includes('GetLoginData') || req.url.includes('Component')) {
+        if (req.url.includes('Account') || req.url.includes('GetLoginData')) {
             host = 'clientbp.ggpolarbear.com';
         }
 
@@ -47,37 +43,27 @@ module.exports = function(app) {
             proxyRes.on('end', () => {
                 let buffer = Buffer.concat(resChunks);
 
-                // --- 💉 MajorLogin Inject ---
                 if (req.url.includes('/MajorLogin')) {
                     try {
+                        // decode කරද්දී loose mode එක පාවිච්චි කරමු
                         const decoded = LoginResponseMsg.decode(buffer);
-                        const myTarget = `${MY_IP}:${TCP_PORT}`;
-
-                        // 1. TCP Redirection
-                        decoded.field16 = myTarget;
-                        decoded.field24 = myTarget;
-
-                        // 2. Auth/Account URL Injection (Field 10)
-                        [span_1](start_span)// bin එකේ තිබුණේ: authsrv1.androidsrvs.com වගේ ඒවා[span_1](end_span)
+                        
+                        // Injection logic
+                        decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+                        decoded.field24 = `${MY_IP}:${TCP_PORT}`;
                         decoded.field10 = `https://navivpn.sytes.net`;
 
-                        // 3. IP List Redirection (Field 19)
-                        [span_2](start_span)// bin එකේ තිබුණ IPs ලැයිස්තුව වෙනුවට අපේ IP එක බලෙන් ඔබමු[span_2](end_span)
                         if (decoded.field19 && decoded.field19.includes(';')) {
                             decoded.field19 = MY_IP;
-                            console.log("💉 [Field 19] Injected our IP over Garena IP List");
                         }
 
                         buffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
-                        console.log(`🎯 [MajorLogin] Full Injection Done (TCP, Field 10, Field 19)`);
-                    } catch (e) { 
-                        console.log("❌ Protobuf Error in MajorLogin Injection"); 
+                        console.log(`🎯 [MajorLogin] Injected Successfully!`);
+                    } catch (e) {
+                        // Error එක මොකක්ද කියලා හරියටම බලමු
+                        console.log(`❌ Protobuf Error Detail: ${e.message}`);
+                        // Error එකක් ආවත් පරණ buffer එකම යවනවා ගේම් එක crash නොවී තියාගන්න
                     }
-                }
-
-                // --- 📦 GetLoginData Sniper ---
-                if (req.url.includes('GetLoginData')) {
-                    console.log(`✅ [SUCCESS] GetLoginData Captured!`);
                 }
 
                 Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
@@ -85,11 +71,7 @@ module.exports = function(app) {
             });
         });
 
-        proxyReq.on('error', (e) => {
-            console.log(`❌ Proxy Connection Error: ${e.message}`);
-            res.status(500).send("");
-        });
-
+        proxyReq.on('error', (e) => res.status(500).send(""));
         if (req.rawBody) proxyReq.write(req.rawBody);
         proxyReq.end();
     });
