@@ -1,8 +1,8 @@
 const https = require('https');
 const protobuf = require('protobufjs');
-const fs = require('fs'); // File system පාවිච්චි කරන්නේ දත්ත සේව් කරන්න
+const fs = require('fs');
 
-// MajorLogin Protobuf Structure එක
+// Protobuf Structure
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -23,24 +23,64 @@ const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const TCP_PORT = 7006;
 
+// ගේම් එකෙන් එන Token එක මතක තියාගන්න Global Variable එකක්
+let capturedAuthToken = ""; 
+
 module.exports = function(app) {
     app.all(/.*/, (req, res) => {
         if (req.url.includes('/ver.php')) return;
 
-        console.log(`🔍 [INCOMING] ${req.method} ${req.url}`);
+        // 🛡️ Attack Blocker: ගේම් එකේ එව්වා හැර වෙනත් URL ආවොත් Block කරනවා
+        const allowedPaths = ['/MajorLogin', '/GetLoginData', '/ver.php', '/Ping', '/Account'];
+        const isAllowed = allowedPaths.some(path => req.url.includes(path));
+        if (!isAllowed) {
+            console.log(`🚫 [BLOCKED] Suspicious request dropped: ${req.url}`);
+            return res.status(403).send('Forbidden');
+        }
 
-        // නියම සර්වර් ලිපිනය තෝරාගැනීම
-        let host = 'loginbp.ggpolarbear.com';
+        console.log(`\n🔍 [INCOMING] ${req.method} ${req.url}`);
+
+        let targetHost = 'loginbp.ggpolarbear.com';
         if (req.url.includes('Account') || req.url.includes('GetLoginData')) {
-            host = 'clientbp.ggpolarbear.com';
+            targetHost = 'clientbp.ggpolarbear.com';
+        }
+
+        // 🎯 Header Casing ආරක්ෂා කිරීම සහ Token එක ඇල්ලීම
+        const proxyHeaders = {};
+        for (let i = 0; i < req.rawHeaders.length; i += 2) {
+            const key = req.rawHeaders[i];
+            const val = req.rawHeaders[i + 1];
+            
+            if (key.toLowerCase() === 'host') {
+                proxyHeaders[key] = targetHost; 
+            } else {
+                proxyHeaders[key] = val;
+            }
+
+            // Token එක අල්ලගන්නවා
+            if (key.toLowerCase() === 'authorization') {
+                capturedAuthToken = val; 
+                console.log(`🔑 [AUTH] Token Captured successfully!`);
+            }
+        }
+
+        // 💉 Token Injection: ගේම් එක GetLoginData එකට Token එක එව්වෙ නැත්නම් අපිම ඒක දානවා
+        if (req.url.includes('/GetLoginData') && !proxyHeaders['Authorization']) {
+            if (capturedAuthToken) {
+                proxyHeaders['Authorization'] = capturedAuthToken;
+                console.log(`💉 [INJECT] Re-injected captured Token to Garena request!`);
+            } else {
+                console.log(`⚠️ [WARNING] No Token available to inject! Session might fail.`);
+            }
         }
 
         const options = {
-            hostname: host,
+            hostname: targetHost,
             port: 443,
             path: req.url,
             method: req.method,
-            headers: { ...req.headers, 'host': host }
+            headers: proxyHeaders,
+            rejectUnauthorized: false // SSL ප්‍රශ්න මඟහරින්න
         };
 
         const proxyReq = https.request(options, (proxyRes) => {
@@ -53,37 +93,32 @@ module.exports = function(app) {
                 if (req.url.includes('/MajorLogin')) {
                     try {
                         const decoded = LoginResponseMsg.decode(buffer);
-                        console.log("🎯 Modifying MajorLogin response...");
-
                         decoded.field10 = `https://${MY_DOMAIN}`;
                         decoded.field16 = `${MY_IP}:${TCP_PORT}`;
                         decoded.field19 = MY_IP;
                         decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-
                         buffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
-                        console.log("✅ Successfully Redirected to Private Server!");
+                        console.log("🎯 [SUCCESS] MajorLogin Redirected to Private Server!");
                     } catch (e) {
                         console.error(`❌ [DECODE ERROR] ${e.message}`);
                     }
                 }
 
-                // 2. GetLoginData අල්ලාගෙන සේව් කිරීම (Dump)
+                // 2. GetLoginData සේව් කිරීම
                 if (req.url.includes('/GetLoginData')) {
-                    console.log("📦 [DATA] Intercepted GetLoginData! Saving for analysis...");
-                    try {
-                        // මේ එන බයිනරි දත්ත ටික ෆයිල් එකකට සේව් කරමු
+                    const responseText = buffer.toString('utf8');
+                    
+                    // සර්වර් එකෙන් Error එකක් ආවොත් ෆයිල් එක සේව් කරන්නේ නැහැ
+                    if (responseText.includes('Authorization header must be Bearer')) {
+                        console.log(`❌ [GARENA ERROR] Failed to fetch data: Missing/Invalid Token!`);
+                    } else {
                         const timestamp = Date.now();
                         const fileName = `GetLoginData_Response_${timestamp}.bin`;
                         fs.writeFileSync(fileName, buffer);
-                        console.log(`💾 Saved Account Data to: ${fileName}`);
-                        
-                        // දැනට අපි Garena එකෙන් ආපු නියම දත්ත ටිකම ගේම් එකට යවනවා (Session එක කඩාවැටෙන්නේ නැති වෙන්න)
-                    } catch (e) {
-                        console.error(`❌ [SAVE ERROR] ${e.message}`);
+                        console.log(`💾 [SAVED] 100% Real Account Data saved to: ${fileName}`);
                     }
                 }
 
-                // Header සහ Response එක ගේම් එකට යැවීම
                 Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
                 res.status(proxyRes.statusCode).send(buffer);
             });
