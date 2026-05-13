@@ -1,27 +1,26 @@
 const https = require('https');
 const protobuf = require('protobufjs');
-const fs = require('fs');
 
-const TARGET_HOST = 'loginbp.ggpolarbear.com';
-const MY_DOMAIN = 'navivpn.sytes.net';
+// Protobuf setup (ඔයාගේ කලින් code එකේ තිබුණ විදිහට)
+// ... (root සහ LoginResponseMsg definition එක මෙතනට දාන්න)
 
 module.exports = function(app) {
-
-    // 🌐 ගේම් එක මුලින්ම සර්වර් එක වැඩද කියලා බලන්න එන තැන
-    app.get('/', (req, res) => {
-        console.log("🌐 [HEALTH CHECK] Game checked if server is alive.");
-        res.status(200).send("OK"); // මේක දුන්නම ගේම් එක ඊළඟ පියවරට යනවා
-    });
-
     app.all(/.*/, (req, res) => {
         if (req.url.includes('/ver.php')) return;
 
-        // 🔍 ටාගට් එක තෝරමු
-        let host = req.url.includes('Account') || req.url.includes('GetLoginData') 
-                   ? 'clientbp.ggpolarbear.com' 
-                   : 'loginbp.ggpolarbear.com';
+        console.log(`\n🔍 [INCOMING REQUEST] ${req.method} ${req.url}`);
+        
+        // 1. Header Scanner: Authorization header එක තියෙනවද කියලා බලනවා
+        if (!req.headers['authorization']) {
+            console.warn(`⚠️ [WARN] Missing Authorization Header in Request!`);
+        } else {
+            console.log(`✅ [INFO] Auth Header: ${req.headers['authorization'].substring(0, 30)}...`);
+        }
 
-        console.log(`📡 [GAME -> VPS] ${req.method} ${req.url}`);
+        let host = 'loginbp.ggpolarbear.com'; 
+        if (req.url.includes('Account') || req.url.includes('GetLoginData')) {
+            host = 'clientbp.ggpolarbear.com';
+        }
 
         const options = {
             hostname: host,
@@ -32,40 +31,48 @@ module.exports = function(app) {
         };
 
         const proxyReq = https.request(options, (proxyRes) => {
+            console.log(`📡 [OUTGOING RESPONSE] Status: ${proxyRes.statusCode}`);
+            
+            // 2. Response Scanner: සර්වර් එකෙන් Error එකක් එවනවද කියලා බලනවා
+            if (proxyRes.statusCode !== 200) {
+                console.error(`❌ [SERVER ERROR] Garena returned ${proxyRes.statusCode} for ${req.url}`);
+            }
+
             let resChunks = [];
             proxyRes.on('data', chunk => resChunks.push(chunk));
             proxyRes.on('end', () => {
                 let buffer = Buffer.concat(resChunks);
 
-                // 1. MajorLogin එකේදී Redirect එක දානවා
+                // 3. Payload Scanner: MajorLogin එකේදී decode වෙනවද බලනවා
                 if (req.url.includes('/MajorLogin')) {
-                    console.log("🚀 [REDIRECTING] Hooking Game to VPS...");
-                    // මෙතනදී අපි කලින් වගේම field10 එක MY_DOMAIN එකට හරවනවා
-                    // (Protobuf decoding code එක මෙතනට දාන්න)
+                    try {
+                        const decoded = LoginResponseMsg.decode(buffer);
+                        console.log(`📦 [PROTOBUF] Successfully decoded MajorLoginResponse`);
+                        
+                        // මෙතනදී ඔයාගේ Modification එක කරනවා
+                        decoded.field10 = `https://navivpn.sytes.net`;
+                        decoded.field19 = `103.6.168.170`;
+
+                        buffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
+                    } catch (e) {
+                        console.error(`❌ [DECODE ERROR] Failed to decode Protobuf: ${e.message}`);
+                    }
                 }
 
-                // 2. GetLoginData එක මැදදී අල්ලලා වෙනස් කරන තැන 🔥
-                if (req.url.includes('GetLoginData')) {
-                    console.log("💎 [INTERCEPTED] Modifying account data before it reaches the game!");
-                    
-                    // 🎯 මෙතනදී තමයි උඹට ඕන දේ කරන්නේ.
-                    // අපි ගරේනා එකෙන් ආපු buffer එක අරගෙන ඒකේ අගයන් වෙනස් කරනවා.
-                    // උදාහරණයකට: buffer = modifyDiamonds(buffer, 99999);
-                    
-                    fs.writeFileSync('last_intercepted_response.bin', buffer);
-                }
-
+                // Header ටික ආපහු සෙට් කරනවා
                 Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
                 res.status(proxyRes.statusCode).send(buffer);
             });
         });
 
         proxyReq.on('error', (e) => {
-            console.log(`❌ Proxy Error: ${e.message}`);
-            res.status(500).send("");
+            console.error(`🚨 [PROXY CRITICAL] ${e.message}`);
+            res.status(500).send("Proxy Error");
         });
 
-        if (req.rawBody) proxyReq.write(req.rawBody);
+        if (req.rawBody) {
+            proxyReq.write(req.rawBody);
+        }
         proxyReq.end();
     });
 };
