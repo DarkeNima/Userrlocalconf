@@ -1,32 +1,28 @@
 const https = require('https');
 const protobuf = require('protobufjs');
+const fs = require('fs');
 
 const TARGET_HOST = 'loginbp.ggpolarbear.com';
-
-// Protobuf structure එක (මේක හරියටම තියෙන්න ඕනේ decode කරන්න)
-const root = protobuf.Root.fromJSON({
-    nested: {
-        AccountData: {
-            fields: {
-                field1: { type: "uint64", id: 1 },
-                nickname: { type: "string", id: 10 },
-                diamonds: { type: "uint32", id: 47 }, // 👈 උදාහරණයක් විදිහට diamonds field එක
-                // තව fields මෙතනට දාන්න...
-            }
-        }
-    }
-});
-const AccountMsg = root.lookupType("AccountData");
+const MY_DOMAIN = 'navivpn.sytes.net';
 
 module.exports = function(app) {
+
+    // 🌐 ගේම් එක මුලින්ම සර්වර් එක වැඩද කියලා බලන්න එන තැන
+    app.get('/', (req, res) => {
+        console.log("🌐 [HEALTH CHECK] Game checked if server is alive.");
+        res.status(200).send("OK"); // මේක දුන්නම ගේම් එක ඊළඟ පියවරට යනවා
+    });
+
     app.all(/.*/, (req, res) => {
         if (req.url.includes('/ver.php')) return;
 
-        let host = req.url.includes('Account') ? 'clientbp.ggpolarbear.com' : 'loginbp.ggpolarbear.com';
-        
-        // 1. [REQUEST INTERCEPTION] - ගේම් එකෙන් සර්වර් එකට යන දත්ත
-        console.log(`📡 [GAME -> SERVER] ${req.method} ${req.url}`);
-        
+        // 🔍 ටාගට් එක තෝරමු
+        let host = req.url.includes('Account') || req.url.includes('GetLoginData') 
+                   ? 'clientbp.ggpolarbear.com' 
+                   : 'loginbp.ggpolarbear.com';
+
+        console.log(`📡 [GAME -> VPS] ${req.method} ${req.url}`);
+
         const options = {
             hostname: host,
             port: 443,
@@ -38,29 +34,25 @@ module.exports = function(app) {
         const proxyReq = https.request(options, (proxyRes) => {
             let resChunks = [];
             proxyRes.on('data', chunk => resChunks.push(chunk));
-            
             proxyRes.on('end', () => {
                 let buffer = Buffer.concat(resChunks);
 
-                // 2. [RESPONSE INTERCEPTION] - සර්වර් එකෙන් ගේම් එකට එන දත්ත
-                if (req.url.includes('GetLoginData') && proxyRes.statusCode === 200) {
-                    console.log(`💎 [INTERCEPTED] Modifying Account Data...`);
+                // 1. MajorLogin එකේදී Redirect එක දානවා
+                if (req.url.includes('/MajorLogin')) {
+                    console.log("🚀 [REDIRECTING] Hooking Game to VPS...");
+                    // මෙතනදී අපි කලින් වගේම field10 එක MY_DOMAIN එකට හරවනවා
+                    // (Protobuf decoding code එක මෙතනට දාන්න)
+                }
+
+                // 2. GetLoginData එක මැදදී අල්ලලා වෙනස් කරන තැන 🔥
+                if (req.url.includes('GetLoginData')) {
+                    console.log("💎 [INTERCEPTED] Modifying account data before it reaches the game!");
                     
-                    try {
-                        // දත්ත decode කරනවා
-                        let decoded = AccountMsg.decode(buffer);
-                        console.log(`👤 Original Nickname: ${decoded.nickname}`);
-
-                        // 🔥 මෙතනදී අපිට ඕන දේ වෙනස් කරන්න පුළුවන්
-                        decoded.diamonds = 99999; 
-                        decoded.nickname = "MODDED_BY_NAVI";
-
-                        // ආයේ encode කරලා ගේම් එකට යවනවා
-                        buffer = AccountMsg.encode(AccountMsg.create(decoded)).finish();
-                        console.log(`✅ [MODIFIED] Data sent to game!`);
-                    } catch (e) {
-                        console.log(`⚠️ Could not decode: ${e.message}`);
-                    }
+                    // 🎯 මෙතනදී තමයි උඹට ඕන දේ කරන්නේ.
+                    // අපි ගරේනා එකෙන් ආපු buffer එක අරගෙන ඒකේ අගයන් වෙනස් කරනවා.
+                    // උදාහරණයකට: buffer = modifyDiamonds(buffer, 99999);
+                    
+                    fs.writeFileSync('last_intercepted_response.bin', buffer);
                 }
 
                 Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
@@ -68,9 +60,11 @@ module.exports = function(app) {
             });
         });
 
-        proxyReq.on('error', (e) => res.status(500).send(""));
-        
-        // ගේම් එකෙන් ආපු original body එකම සර්වර් එකට යවනවා
+        proxyReq.on('error', (e) => {
+            console.log(`❌ Proxy Error: ${e.message}`);
+            res.status(500).send("");
+        });
+
         if (req.rawBody) proxyReq.write(req.rawBody);
         proxyReq.end();
     });
