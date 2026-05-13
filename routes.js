@@ -22,14 +22,14 @@ const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const TCP_PORT = 7006;
 
-// Store the original token from the first request (it's valid for GetLoginData)
-let validAuthToken = "";
+let validBearerToken = ""; // මෙතන "Bearer eyJhbGci..." සම්පූර්ණයෙන් තියෙනවා
 
 module.exports = function(app) {
     app.all(/.*/, (req, res) => {
+        // ver.php ට බාධා නොකරන්න (index.js එකේ එය හසුරුවයි)
         if (req.url.includes('/ver.php')) return;
 
-        const allowedPaths = ['/MajorLogin', '/GetLoginData', '/ver.php', '/Ping', '/Account'];
+        const allowedPaths = ['/MajorLogin', '/GetLoginData', '/Ping', '/Account'];
         const isAllowed = allowedPaths.some(path => req.url.includes(path));
         if (!isAllowed) {
             console.log(`🚫 BLOCKED: ${req.url}`);
@@ -52,23 +52,23 @@ module.exports = function(app) {
             } else {
                 proxyHeaders[key] = val;
             }
-            if (key.toLowerCase() === 'authorization') {
-                // Save the original token (this is the real Bearer token)
-                if (!validAuthToken) {
-                    validAuthToken = val;
-                    console.log(`🔑 Original Bearer token captured: ${val.substring(0, 50)}...`);
-                    console.log(`📏 Token length: ${val.length}`);
+            // Authorization header එක capture කරන්න (Bearer token එක)
+            if (key.toLowerCase() === 'authorization' && val && val.startsWith('Bearer ')) {
+                if (!validBearerToken) {
+                    validBearerToken = val;
+                    console.log(`🔑 Captured Bearer token (length: ${val.length})`);
+                    console.log(`🔑 Preview: ${val.substring(0, 50)}...`);
                 }
             }
         }
 
-        // FORCE inject the original token for /GetLoginData
+        // /GetLoginData request එකට බලෙන් token එක inject කරන්න
         if (req.url.includes('/GetLoginData')) {
-            if (validAuthToken) {
-                proxyHeaders['Authorization'] = validAuthToken;
-                console.log(`💉 Injected original token into /GetLoginData`);
+            if (validBearerToken) {
+                proxyHeaders['Authorization'] = validBearerToken;
+                console.log(`💉 Injected token into /GetLoginData`);
             } else {
-                console.log(`⚠️ No token available yet`);
+                console.log(`⚠️ No token available yet, waiting for /MajorLogin request`);
             }
         }
 
@@ -90,31 +90,29 @@ module.exports = function(app) {
                 if (req.url.includes('/MajorLogin')) {
                     try {
                         const decoded = LoginResponseMsg.decode(buffer);
-                        // (Optional) decode and log fields to see if any useful token exists, but we ignore field2 now.
-                        if (decoded.field2) {
-                            console.log(`ℹ️ field2 (ignored): ${decoded.field2}`);
-                        }
-                        // Modify server redirection
-                        decoded.field10 = `https://${MY_DOMAIN}`;
-                        decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                        decoded.field19 = MY_IP;
-                        decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+                        // Modify response to redirect client to your private server
+                        //decoded.field10 = `https://${MY_DOMAIN}`;
+                        //decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+                        //decoded.field19 = MY_IP;
+                        //decoded.field24 = `${MY_IP}:${TCP_PORT}`;
                         buffer = LoginResponseMsg.encode(decoded).finish();
-                        console.log(`🎯 MajorLogin redirected to ${MY_IP}:${TCP_PORT}`);
+                        console.log(`🎯 MajorLogin response modified -> redirect to ${MY_IP}:${TCP_PORT}`);
                     } catch (err) {
-                        console.error(`Protobuf error: ${err.message}`);
+                        console.error(`❌ Protobuf decode error: ${err.message}`);
                     }
                 }
 
                 if (req.url.includes('/GetLoginData')) {
                     const responseText = buffer.toString('utf8');
-                    if (responseText.includes('token contains an invalid number of segments') ||
-                        responseText.includes('Authorization header must be Bearer') ||
-                        responseText.includes('expired')) {
-                        console.log(`❌ ERROR: ${responseText.substring(0, 200)}`);
-                        fs.writeFileSync(`GetLoginData_ERROR_${Date.now()}.txt`, buffer);
+                    if (responseText.includes('Authorization header must be Bearer') ||
+                        responseText.includes('invalid number of segments') ||
+                        responseText.includes('expired') ||
+                        responseText.includes('Session has expired')) {
+                        console.log(`❌ Garena error: ${responseText.substring(0, 200)}`);
+                        const filename = `GetLoginData_ERROR_${Date.now()}.txt`;
+                        fs.writeFileSync(filename, buffer);
+                        console.log(`💾 Error saved to ${filename}`);
                     } else {
-                        // Success - save the real account data
                         const filename = `GetLoginData_SUCCESS_${Date.now()}.bin`;
                         fs.writeFileSync(filename, buffer);
                         console.log(`✅ SUCCESS! Saved to ${filename}`);
@@ -127,7 +125,10 @@ module.exports = function(app) {
             });
         });
 
-        proxyReq.on('error', (err) => res.status(500).send(""));
+        proxyReq.on('error', (err) => {
+            console.error(`❌ Proxy error: ${err.message}`);
+            res.status(500).send("");
+        });
         if (req.rawBody) proxyReq.write(req.rawBody);
         proxyReq.end();
     });
