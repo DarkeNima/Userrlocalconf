@@ -1,7 +1,8 @@
 const https = require('https');
 const protobuf = require('protobufjs');
+const fs = require('fs'); // File system පාවිච්චි කරන්නේ දත්ත සේව් කරන්න
 
-// Protobuf Structure එක මෙතන Define කරන්න ඕනේ
+// MajorLogin Protobuf Structure එක
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -28,6 +29,7 @@ module.exports = function(app) {
 
         console.log(`🔍 [INCOMING] ${req.method} ${req.url}`);
 
+        // නියම සර්වර් ලිපිනය තෝරාගැනීම
         let host = 'loginbp.ggpolarbear.com';
         if (req.url.includes('Account') || req.url.includes('GetLoginData')) {
             host = 'clientbp.ggpolarbear.com';
@@ -47,12 +49,12 @@ module.exports = function(app) {
             proxyRes.on('end', () => {
                 let buffer = Buffer.concat(resChunks);
 
+                // 1. MajorLogin Modify කිරීම
                 if (req.url.includes('/MajorLogin')) {
                     try {
                         const decoded = LoginResponseMsg.decode(buffer);
                         console.log("🎯 Modifying MajorLogin response...");
 
-                        // සර්වර් ලිපින අපේ ඒවට හරවනවා
                         decoded.field10 = `https://${MY_DOMAIN}`;
                         decoded.field16 = `${MY_IP}:${TCP_PORT}`;
                         decoded.field19 = MY_IP;
@@ -65,6 +67,23 @@ module.exports = function(app) {
                     }
                 }
 
+                // 2. GetLoginData අල්ලාගෙන සේව් කිරීම (Dump)
+                if (req.url.includes('/GetLoginData')) {
+                    console.log("📦 [DATA] Intercepted GetLoginData! Saving for analysis...");
+                    try {
+                        // මේ එන බයිනරි දත්ත ටික ෆයිල් එකකට සේව් කරමු
+                        const timestamp = Date.now();
+                        const fileName = `GetLoginData_Response_${timestamp}.bin`;
+                        fs.writeFileSync(fileName, buffer);
+                        console.log(`💾 Saved Account Data to: ${fileName}`);
+                        
+                        // දැනට අපි Garena එකෙන් ආපු නියම දත්ත ටිකම ගේම් එකට යවනවා (Session එක කඩාවැටෙන්නේ නැති වෙන්න)
+                    } catch (e) {
+                        console.error(`❌ [SAVE ERROR] ${e.message}`);
+                    }
+                }
+
+                // Header සහ Response එක ගේම් එකට යැවීම
                 Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
                 res.status(proxyRes.statusCode).send(buffer);
             });
