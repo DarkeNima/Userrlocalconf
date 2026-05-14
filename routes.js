@@ -28,13 +28,7 @@ module.exports = function(app) {
     app.all(/.*/, (req, res) => {
         if (req.url.includes('/ver.php')) return;
 
-        const allowedPaths = ['/MajorLogin', '/GetLoginData', '/Ping', '/Account'];
-        const isAllowed = allowedPaths.some(path => req.url.includes(path));
-        if (!isAllowed) {
-            console.log(`🚫 BLOCKED: ${req.url}`);
-            return res.status(403).send('Forbidden');
-        }
-
+        
         console.log(`\n🔍 ${req.method} ${req.url}`);
 
         let targetHost = 'loginbp.ggpolarbear.com';
