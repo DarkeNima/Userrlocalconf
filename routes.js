@@ -1,117 +1,115 @@
 const https = require('https');
 const protobuf = require('protobufjs');
-const fs = require('fs');
 
+const TARGET_HOST = 'loginbp.ggpolarbear.com';
+const MY_DOMAIN = 'navivpn.sytes.net'; 
+const MY_IP = '103.6.168.170';
+const TCP_PORT = 7006;
+
+// ✅ අලුත් Protobuf Structure එක
 const root = protobuf.Root.fromJSON({
     nested: {
-        MajorLoginResponse: {
+        BlacklistInfoRes: { fields: { ban_reason: { type: "int32", id: 1 }, expire_duration: { type: "uint32", id: 2 }, ban_time: { type: "uint32", id: 3 } } },
+        LoginQueueInfo: { fields: { allow: { type: "bool", id: 1 }, queue_position: { type: "uint32", id: 2 }, need_wait_secs: { type: "uint32", id: 3 }, queue_is_full: { type: "bool", id: 4 } } },
+        FFAntiConfigDesc: { fields: { region: { type: "string", id: 1 }, enable: { type: "bool", id: 2 }, hpe_enable: { type: "bool", id: 3 }, ffi_enable: { type: "bool", id: 4 }, mtp_lite_data_enable: { type: "bool", id: 5 } } },
+        MajorLoginRes: {
             fields: {
-                field1: { type: "uint64", id: 1 },
-                field2: { type: "string", id: 2 },
-                field10: { type: "string", id: 10 },
-                field16: { type: "string", id: 16 },
-                field19: { type: "string", id: 19 },
-                field24: { type: "string", id: 24 }
+                account_id: { type: "uint64", id: 1 },
+                lock_region: { type: "string", id: 2 },
+                token: { type: "string", id: 8 },
+                server_url: { type: "string", id: 10 },
+                ip_city: { type: "string", id: 16 },
+                ff_anti_config_desc: { type: "FFAntiConfigDesc", id: 22 }
+            }
+        },
+        CSGetAccountBriefInfoBeforeLoginRes: {
+            fields: {
+                account_id: { type: "uint64", id: 1 },
+                nickname: { type: "string", id: 2 },
+                level: { type: "uint32", id: 5 },
+                lock_reigon: { type: "string", id: 6 }
             }
         }
     }
 });
-const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
-const MY_DOMAIN = 'navivpn.sytes.net';
-const MY_IP = '103.6.168.170';
-const TCP_PORT = 7006;
-
-let validBearerToken = "";
+const LoginRes = root.lookupType("MajorLoginRes");
+const AccountBriefRes = root.lookupType("CSGetAccountBriefInfoBeforeLoginRes");
 
 module.exports = function(app) {
+
     app.all(/.*/, (req, res) => {
         if (req.url.includes('/ver.php')) return;
 
-        
-        console.log(`\n🔍 ${req.method} ${req.url}`);
-
-        let targetHost = 'loginbp.ggpolarbear.com';
-        if (req.url.includes('Account') || req.url.includes('GetLoginData')) {
-            targetHost = 'clientbp.ggpolarbear.com';
+        // 🛡️ Session Expire නොවී තිබීමට Host එක හරියටම තෝරමු
+        let host = TARGET_HOST;
+        if (req.url.includes('Account') || req.url.includes('GetLoginData') || req.url.includes('GetAccountBriefInfo')) {
+            host = 'clientbp.ggpolarbear.com';
         }
 
-        const proxyHeaders = {};
-        for (let i = 0; i < req.rawHeaders.length; i += 2) {
-            const key = req.rawHeaders[i];
-            const val = req.rawHeaders[i + 1];
-            if (key.toLowerCase() === 'host') {
-                proxyHeaders[key] = targetHost;
-            } else {
-                proxyHeaders[key] = val;
-            }
-            if (key.toLowerCase() === 'authorization' && val && val.startsWith('Bearer ')) {
-                if (!validBearerToken) {
-                    validBearerToken = val;
-                    console.log(`🔑 Captured Bearer token (length: ${val.length})`);
-                }
-            }
-        }
-
-        if (req.url.includes('/GetLoginData')) {
-            if (validBearerToken) {
-                proxyHeaders['Authorization'] = validBearerToken;
-                console.log(`💉 Injected token into /GetLoginData`);
-            }
-        }
+        console.log(`📡 [PROXY] ${req.method} ${host}${req.url}`);
 
         const options = {
-            hostname: targetHost,
+            hostname: host,
             port: 443,
             path: req.url,
             method: req.method,
-            headers: proxyHeaders,
-            rejectUnauthorized: false
+            headers: { 
+                ...req.headers, 
+                'host': host,
+                'accept-encoding': 'identity' // Compression නිසා දත්ත කියවන්න බැරි වෙන එක නවත්වන්න
+            }
         };
 
         const proxyReq = https.request(options, (proxyRes) => {
-            let chunks = [];
-            proxyRes.on('data', c => chunks.push(c));
+            let resChunks = [];
+            proxyRes.on('data', chunk => resChunks.push(chunk));
             proxyRes.on('end', () => {
-                let buffer = Buffer.concat(chunks);
+                let buffer = Buffer.concat(resChunks);
 
-                if (req.url.includes('/MajorLogin')) {
+                // 🔥 MajorLogin Interception (Redirecting)
+                if (req.url.includes('/MajorLogin') && proxyRes.statusCode === 200) {
                     try {
-                        const decoded = LoginResponseMsg.decode(buffer);
-                        // 🔄 Redirect client to your private server
-                        decoded.field10 = `https://${MY_DOMAIN}`;
-                        decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                        decoded.field19 = MY_IP;
-                        decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-                        buffer = LoginResponseMsg.encode(decoded).finish();
-                        console.log(`🎯 MajorLogin redirected to ${MY_IP}:${TCP_PORT}`);
-                    } catch (err) {
-                        console.error(`❌ Protobuf error: ${err.message}`);
+                        let decoded = LoginRes.decode(buffer);
+                        console.log(`🔑 Token Captured: ${decoded.token.substring(0, 10)}...`);
+
+                        // Bypass Logic: IP වෙනස් කරන්නේ නැතුව Server URL එක විතරක් හරවනවා
+                        decoded.server_url = `https://${MY_DOMAIN}`; 
+                        decoded.ip_city = `${MY_IP}:${TCP_PORT}`;
+
+                        buffer = LoginRes.encode(LoginRes.create(decoded)).finish();
+                        console.log(`🚀 [REDIRECTED] Game hooked to VPS successfully.`);
+                    } catch (e) {
+                        console.log(`❌ MajorLogin Error: ${e.message}`);
                     }
                 }
 
-                if (req.url.includes('/GetLoginData')) {
-                    const responseText = buffer.toString('utf8');
-                    if (responseText.includes('Authorization header must be Bearer') ||
-                        responseText.includes('invalid number of segments') ||
-                        responseText.includes('expired') ||
-                        responseText.includes('Session has expired')) {
-                        console.log(`❌ Garena error: ${responseText.substring(0, 200)}`);
-                        fs.writeFileSync(`GetLoginData_ERROR_${Date.now()}.txt`, buffer);
-                    } else {
-                        const filename = `GetLoginData_SUCCESS_${Date.now()}.bin`;
-                        fs.writeFileSync(filename, buffer);
-                        console.log(`✅ SUCCESS! Saved to ${filename}`);
-                        console.log(`📄 Preview: ${responseText.substring(0, 300)}`);
+                // 🔥 Account Data Interception (Modding Nickname/Level)
+                if (req.url.includes('GetAccountBriefInfo') && proxyRes.statusCode === 200) {
+                    try {
+                        let decoded = AccountBriefRes.decode(buffer);
+                        console.log(`👤 Original Nickname: ${decoded.nickname}`);
+
+                        // දත්ත වෙනස් කරනවා
+                        decoded.nickname = "MODDED_BY_NAVI";
+                        decoded.level = 99;
+
+                        buffer = AccountBriefRes.encode(AccountBriefRes.create(decoded)).finish();
+                        console.log(`💎 [MODDED] Profile data injected!`);
+                    } catch (e) {
+                        console.log(`❌ BriefInfo Error: ${e.message}`);
                     }
                 }
 
-                Object.keys(proxyRes.headers).forEach(k => res.setHeader(k, proxyRes.headers[k]));
+                // Headers ටික ආපසු යවනවා (Session Fix සඳහා)
+                Object.keys(proxyRes.headers).forEach(k => {
+                    if (k !== 'content-length') res.setHeader(k, proxyRes.headers[k]);
+                });
                 res.status(proxyRes.statusCode).send(buffer);
             });
         });
 
-        proxyReq.on('error', (err) => res.status(500).send(""));
+        proxyReq.on('error', (e) => res.status(500).send(""));
         if (req.rawBody) proxyReq.write(req.rawBody);
         proxyReq.end();
     });
