@@ -16,11 +16,9 @@ const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 const TARGET_HOST = 'loginbp.ggpolarbear.com'; 
-const LOG_DIR = path.join(__dirname, 'logs');
+const TARGET_BATTLE_HOST = 'csoversea.stronghold.freefiremobile.com'; // Battle server
 
-if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-
-// Protobuf Schema එක Load කිරීම
+// Protobuf (MajorLogin)
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -58,7 +56,7 @@ const root = protobuf.Root.fromJSON({
 
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
-// SSL Certificates
+// SSL
 let sslOptions;
 try {
     sslOptions = {
@@ -71,14 +69,17 @@ try {
     process.exit(1);
 }
 
-// Raw Body Capture
+// Raw Body
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
+    req.on('end', () => { 
+        req.rawBody = Buffer.concat(chunks); 
+        next(); 
+    });
 });
 
-// 1️⃣ [ver.php]
+// ==================== ver.php ====================
 app.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
@@ -89,118 +90,125 @@ app.get('/ver.php', (req, res) => {
         "backup_cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
         "abhotupdate_cdn_url": "https://core-tata.freefireind.in/live/ABHotUpdates/",
         "img_cdn_url": "https://dl-tata.freefireind.in/common/",
-        "login_download_optionalpack": "optionalclothres:shaders|optionalpetres:optionalpetres_commonab_shader|optionallobbyres:",
-        "need_track_hotupdate": true,
-        "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
-        "latest_release_version": "OB53",
-        "min_hint_size": 1,
-        "space_required_in_GB": 1.48,
-        "should_check_ab_load": false,
-        "force_refresh_restype": "optionalavatarres",
-        "remote_version": "1.123.8",
-        "server_url": `${MY_URL_HTTPS}/`, 
-        "is_review_server": false,
-        "use_login_optional_download": true,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
-        "country_code": "SG",
-        "client_ip": clientIp,
-        "gdpr_version": 0,
-        "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend",
+        "server_url": `${MY_URL_HTTPS}/`,
         "ggp_url": MY_IP,
         "core_url": MY_IP,
-        "core_ip_list": [MY_IP, "0.0.0.0"]
+        "core_ip_list": [MY_IP, "0.0.0.0"],
+        "latest_release_version": "OB53",
+        "country_code": "SG",
+        "client_ip": clientIp,
+        // ... අනිත් values ඔයාට ඕන නම් එකතු කරන්න
     };
-    res.setHeader('Content-Type', 'application/json');
-    res.status(200).json(verData);
-    console.log(`✅ ver.php sent`);
+    res.json(verData);
+    console.log(`✅ ver.php sent to ${clientIp}`);
 });
 
-
-// 2️⃣ [MajorLogin] - LIVE INJECTION
+// ==================== MajorLogin with Injection ====================
 app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Captured! Forwarding to Garena...`);
+    console.log(`\n🎯 [MajorLogin] Captured!`);
 
     const options = {
         hostname: TARGET_HOST,
         port: 443,
         path: '/MajorLogin',
         method: 'POST',
-        headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
+        headers: { ...req.headers, host: TARGET_HOST }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        const resChunks = [];
-        proxyRes.on('data', chunk => resChunks.push(chunk));
+        let chunks = [];
+        proxyRes.on('data', chunk => chunks.push(chunk));
         proxyRes.on('end', () => {
-            const originalBuffer = Buffer.concat(resChunks);
-            console.log(`[←] Received Official Data (${originalBuffer.length} bytes)`);
+            let buffer = Buffer.concat(chunks);
 
-            // 🛠️ පියවර 1: Official Data ටික Decode කරනවා
             try {
-                const decoded = LoginResponseMsg.decode(originalBuffer);
+                let decoded = LoginResponseMsg.decode(buffer);
                 console.log("✅ Decoded successfully");
 
-                // ✅ ඔයාගේ IP එක inject කරන්න (ප්‍රධානය) - Syntax Error Fixed
-                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+                decoded.field16 = `\( {MY_IP}: \){TCP_PORT}`;
+                decoded.field24 = `\( {MY_IP}: \){TCP_PORT}`;
 
-                // 🔥 වැදගත්: Server list string එකත් replace කරන්න
                 if (decoded.field22) {
-                    let serverList = decoded.field22.toString();  // bytes → string
-                    serverList = serverList.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    serverList = serverList.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP); // සියලු official IPs replace
-                    decoded.field22 = Buffer.from(serverList);
-                    console.log("💉 Replaced server list in field22");
+                    let str = decoded.field22.toString();
+                    str = str.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    str = str.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field22 = Buffer.from(str);
                 }
-
                 if (decoded.field23) {
-                    let serverList2 = decoded.field23.toString();
-                    serverList2 = serverList2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    serverList2 = serverList2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field23 = Buffer.from(serverList2);
-                    console.log("💉 Replaced server list in field23");
+                    let str = decoded.field23.toString();
+                    str = str.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    str = str.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field23 = Buffer.from(str);
                 }
 
-                const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
-                res.send(modifiedBuffer);
-                console.log("✅ Full injection done!");
-
-            } catch (err) {
-                console.error("❌ Decode failed:", err.message);
-                // Decode fail වුණොත් original data යවන්න (එක පාරක්)
-                res.send(originalBuffer);
+                buffer = LoginResponseMsg.encode(decoded).finish();
+                console.log("💉 Injection Successful!");
+            } catch (e) {
+                console.log("⚠️ Decode failed, sending original");
             }
+
+            res.send(buffer);
         });
     });
 
-    // Handle Proxy Errors
-    proxyReq.on('error', (err) => {
-        console.error("❌ Proxy Request Error:", err.message);
-        res.status(500).send("Proxy Error");
+    proxyReq.on('error', e => {
+        console.error("Proxy Error:", e.message);
+        res.status(500).send("Error");
     });
 
-    // 🔥 අනිවාර්යයි: Garena එකට මුල් request එකේ data යවලා request එක අවසන් කිරීම
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
-    
-// 3️⃣ [TCP Server] - ගේම් එක මෙතනට තමයි ඊළඟට එන්නේ
-const tcpServer = net.createServer((socket) => {
-    console.log(`\n🔥 [TCP] Game Client Connected: ${socket.remoteAddress}`);
-    
-    socket.on('data', (data) => {
-        console.log(`[TCP] Received: ${data.length} bytes`);
-        // මෙතනදී තමයි Game Play packets කියවන්න පටන් ගන්න ඕනේ
+// ==================== General Proxy for all other requests ====================
+app.post('/*', (req, res) => {
+    const path = req.originalUrl;
+    console.log(`➡️ [${path}] Forwarding to Garena...`);
+
+    const options = {
+        hostname: TARGET_HOST,
+        port: 443,
+        path: path,
+        method: 'POST',
+        headers: { ...req.headers, host: TARGET_HOST }
+    };
+
+    const proxyReq = https.request(options, (proxyRes) => {
+        let chunks = [];
+        proxyRes.on('data', c => chunks.push(c));
+        proxyRes.on('end', () => {
+            res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/octet-stream');
+            res.status(proxyRes.statusCode || 200).send(Buffer.concat(chunks));
+            console.log(`⬅️ [\( {path}] Response sent ( \){Buffer.concat(chunks).length} bytes)`);
+        });
     });
 
-    socket.on('close', () => console.log(`[TCP] Connection Closed`));
-    socket.on('error', (err) => console.log(`[TCP] Error: ${err.message}`));
+    proxyReq.write(req.rawBody);
+    proxyReq.end();
 });
 
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on Port ${TCP_PORT}`));
+// ==================== Better TCP Battle Proxy ====================
+const tcpServer = net.createServer((client) => {
+    console.log(`🔥 [TCP] Client Connected: \( {client.remoteAddress}: \){client.remotePort}`);
 
-// HTTP/HTTPS Servers
+    const target = net.createConnection({
+        host: TARGET_BATTLE_HOST,
+        port: 7006
+    });
+
+    client.pipe(target);
+    target.pipe(client);
+
+    client.on('error', (err) => console.log(`[TCP Client Error] ${err.message}`));
+    target.on('error', (err) => console.log(`[TCP Target Error] ${err.message}`));
+    client.on('close', () => target.destroy());
+    target.on('close', () => client.destroy());
+});
+
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
+    console.log(`🚀 TCP Battle Proxy running on port ${TCP_PORT}`);
+});
+
+// Start Servers
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
