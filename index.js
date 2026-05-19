@@ -133,47 +133,57 @@ app.post('/MajorLogin', (req, res) => {
         const resChunks = [];
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
+            const originalBuffer = Buffer.concat(resChunks);
+            console.log(`[←] Received Official Data (${originalBuffer.length} bytes)`);
+
+            // 🛠️ පියවර 1: Official Data ටික Decode කරනවා
             try {
-                const originalBuffer = Buffer.concat(resChunks);
-                console.log(`[←] Received Official Data (${originalBuffer.length} bytes)`);
+                const decoded = LoginResponseMsg.decode(originalBuffer);
+                console.log("✅ Decoded successfully");
 
-                // 🛠️ පියවර 1: Official Data ටික Decode කරනවා
-                // MajorLogin ඇතුළත, decode කරලා පස්සේ මේක දාන්න
-try {
-    const decoded = LoginResponseMsg.decode(originalBuffer);
-    console.log("✅ Decoded successfully");
+                // ✅ ඔයාගේ IP එක inject කරන්න (ප්‍රධානය) - Syntax Error Fixed
+                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+                decoded.field24 = `${MY_IP}:${TCP_PORT}`;
 
-    // ✅ ඔයාගේ IP එක inject කරන්න (ප්‍රධානය)
-    decoded.field16 = `\( {MY_IP}: \){TCP_PORT}`;
-    decoded.field24 = `\( {MY_IP}: \){TCP_PORT}`;
+                // 🔥 වැදගත්: Server list string එකත් replace කරන්න
+                if (decoded.field22) {
+                    let serverList = decoded.field22.toString();  // bytes → string
+                    serverList = serverList.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    serverList = serverList.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP); // සියලු official IPs replace
+                    decoded.field22 = Buffer.from(serverList);
+                    console.log("💉 Replaced server list in field22");
+                }
 
-    // 🔥 වැදගත්: Server list string එකත් replace කරන්න
-    if (decoded.field22) {
-        let serverList = decoded.field22.toString();  // bytes → string
-        serverList = serverList.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-        serverList = serverList.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP); // සියලු official IPs replace
-        decoded.field22 = Buffer.from(serverList);
-        console.log("💉 Replaced server list in field22");
-    }
+                if (decoded.field23) {
+                    let serverList2 = decoded.field23.toString();
+                    serverList2 = serverList2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    serverList2 = serverList2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field23 = Buffer.from(serverList2);
+                    console.log("💉 Replaced server list in field23");
+                }
 
-    if (decoded.field23) {
-        // field23 එකත් බලන්න
-        let serverList2 = decoded.field23.toString();
-        serverList2 = serverList2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-        serverList2 = serverList2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-        decoded.field23 = Buffer.from(serverList2);
-        console.log("💉 Replaced server list in field23");
-    }
+                const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
+                res.send(modifiedBuffer);
+                console.log("✅ Full injection done!");
 
-    const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
-    res.send(modifiedBuffer);
-    console.log("✅ Full injection done!");
+            } catch (err) {
+                console.error("❌ Decode failed:", err.message);
+                // Decode fail වුණොත් original data යවන්න (එක පාරක්)
+                res.send(originalBuffer);
+            }
+        });
+    });
 
-} catch (err) {
-    console.error("❌ Decode failed:", err.message);
-    // Decode fail වුණොත් original data යවන්න (එක පාරක්)
-    res.send(originalBuffer);
-}
+    // Handle Proxy Errors
+    proxyReq.on('error', (err) => {
+        console.error("❌ Proxy Request Error:", err.message);
+        res.status(500).send("Proxy Error");
+    });
+
+    // 🔥 අනිවාර්යයි: Garena එකට මුල් request එකේ data යවලා request එක අවසන් කිරීම
+    proxyReq.write(req.rawBody);
+    proxyReq.end();
+});
 
     
 // 3️⃣ [TCP Server] - ගේම් එක මෙතනට තමයි ඊළඟට එන්නේ
