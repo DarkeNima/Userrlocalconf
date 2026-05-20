@@ -16,11 +16,8 @@ const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 const TARGET_HOST = 'loginbp.ggpolarbear.com'; 
-const LOG_DIR = path.join(__dirname, 'logs');
 
-if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-
-// Protobuf Schema එක Load කිරීම
+// Protobuf Schema
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -71,7 +68,7 @@ try {
     process.exit(1);
 }
 
-// Raw Body Capture
+// Raw Body Capture Middleware
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
@@ -84,38 +81,16 @@ app.get('/ver.php', (req, res) => {
     const verData = {
         "code": 0,
         "is_server_open": true,
-        "is_firewall_open": false,
-        "cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
-        "backup_cdn_url": "https://dl-tata.freefireind.in/live/ABHotUpdates/",
-        "abhotupdate_cdn_url": "https://core-tata.freefireind.in/live/ABHotUpdates/",
-        "img_cdn_url": "https://dl-tata.freefireind.in/common/",
-        "login_download_optionalpack": "optionalclothres:shaders|optionalpetres:optionalpetres_commonab_shader|optionallobbyres:",
-        "need_track_hotupdate": true,
-        "abhotupdate_check": "cache_res;assetindexer;SH-Gpp",
         "latest_release_version": "OB53",
-        "min_hint_size": 1,
-        "space_required_in_GB": 1.48,
-        "should_check_ab_load": false,
-        "force_refresh_restype": "optionalavatarres",
-        "remote_version": "1.123.8",
         "server_url": `${MY_URL_HTTPS}/`, 
-        "is_review_server": false,
-        "use_login_optional_download": true,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
-        "country_code": "SG",
-        "client_ip": clientIp,
-        "gdpr_version": 0,
-        "billboard_cdn_url": "https://dl-tata.freefireind.in/common/OB53/CSH/patchupdate/indhfuHFHf101.ff_extend",
         "ggp_url": MY_IP,
         "core_url": MY_IP,
         "core_ip_list": [MY_IP, "0.0.0.0"]
     };
     res.setHeader('Content-Type', 'application/json');
     res.status(200).json(verData);
-    console.log(`✅ ver.php sent`);
+    console.log(`✅ ver.php sent to ${clientIp}`);
 });
-
 
 // 2️⃣ [MajorLogin] - LIVE INJECTION
 app.post('/MajorLogin', (req, res) => {
@@ -136,24 +111,19 @@ app.post('/MajorLogin', (req, res) => {
             const originalBuffer = Buffer.concat(resChunks);
             console.log(`[←] Received Official Data (${originalBuffer.length} bytes)`);
 
-            // 🛠️ පියවර 1: Official Data ටික Decode කරනවා
             try {
                 const decoded = LoginResponseMsg.decode(originalBuffer);
-                console.log("✅ Decoded successfully");
+                
+                // IP Injection
+                decoded.field16 = MY_IP;
+                decoded.field24 = MY_IP;
+                console.log(`🛠️ Modified Fields: { f16: ${decoded.field16}, f24: ${decoded.field24} }`);
 
-                // ✅ ඔයාගේ IP එක inject කරන්න (ප්‍රධානය) - Syntax Error Fixed
-                // කලින් තිබ්බ විදිය:
-// decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-
-// අලුත් විදිය:
-decoded.field16 = `${MY_IP}`;
-decoded.field24 = `${MY_IP}`;
-
-                // 🔥 වැදගත්: Server list string එකත් replace කරන්න
+                // Field 22/23 Replacement
                 if (decoded.field22) {
-                    let serverList = decoded.field22.toString();  // bytes → string
+                    let serverList = decoded.field22.toString();
                     serverList = serverList.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    serverList = serverList.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP); // සියලු official IPs replace
+                    serverList = serverList.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
                     decoded.field22 = Buffer.from(serverList);
                     console.log("💉 Replaced server list in field22");
                 }
@@ -172,39 +142,43 @@ decoded.field24 = `${MY_IP}`;
 
             } catch (err) {
                 console.error("❌ Decode failed:", err.message);
-                // Decode fail වුණොත් original data යවන්න (එක පාරක්)
                 res.send(originalBuffer);
             }
         });
     });
 
-    // Handle Proxy Errors
     proxyReq.on('error', (err) => {
-        console.error("❌ Proxy Request Error:", err.message);
+        console.error("❌ Proxy Error:", err.message);
         res.status(500).send("Proxy Error");
     });
 
-    // 🔥 අනිවාර්යයි: Garena එකට මුල් request එකේ data යවලා request එක අවසන් කිරීම
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
+// 3️⃣ [Unknown Request Catch-all] - ලොබි එකේදී එන ඕනෑම HTTPS රික්වෙස්ට් එකක් අල්ලන්න
+app.all('*', (req, res) => {
+    console.log(`📡 [Unknown Request] ${req.method} ${req.url}`);
+    console.log(`   Headers: ${JSON.stringify(req.headers)}`);
+    if(req.rawBody && req.rawBody.length > 0) {
+        console.log(`   Body Length: ${req.rawBody.length} bytes`);
+    }
+    // දැනට මුකුත් නොකර 404 යවමු, මොනවද එන්නේ කියලා විතරක් බලන්න
+    res.status(404).send("Not Found");
+});
     
-// 3️⃣ [TCP Server] - ගේම් එක මෙතනට තමයි ඊළඟට එන්නේ
+// 4️⃣ [TCP Server]
 const tcpServer = net.createServer((socket) => {
     console.log(`\n🔥 [TCP] Game Client Connected: ${socket.remoteAddress}`);
-    
     socket.on('data', (data) => {
-        console.log(`[TCP] Received: ${data.length} bytes`);
-        // මෙතනදී තමයි Game Play packets කියවන්න පටන් ගන්න ඕනේ
+        console.log(`[TCP] Received: ${data.length} bytes from client`);
     });
-
     socket.on('close', () => console.log(`[TCP] Connection Closed`));
     socket.on('error', (err) => console.log(`[TCP] Error: ${err.message}`));
 });
 
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on Port ${TCP_PORT}`));
 
-// HTTP/HTTPS Servers
+// Start Servers
 http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
 https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
