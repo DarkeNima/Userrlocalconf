@@ -167,9 +167,13 @@ app.post('/MajorLogin', (req, res) => {
 
 // ====================== FULL UNLOCK ROUTES ======================
 app.post('/GetPlayerInfo', (req, res) => {
-    console.log("🔓 [GetPlayerInfo] → FULL UNLOCK SENT");
-    res.json({
+// ====================== BETTER FULL UNLOCK (Original Style) ======================
+app.post('/GetPlayerInfo', (req, res) => {
+    console.log("🔓 [GetPlayerInfo] → Original Style Full Unlock");
+    
+    const playerInfo = {
         "code": 0,
+        "msg": "success",
         "player": {
             "uid": "6969696969",
             "nickname": "NaviPrivate",
@@ -177,20 +181,36 @@ app.post('/GetPlayerInfo', (req, res) => {
             "exp": 999999999,
             "vip_level": 12,
             "gold": 999999999,
-            "diamond": 999999999
+            "diamond": 999999999,
+            "honor": 999999,
+            "create_time": Math.floor(Date.now()/1000),
+            "last_login_time": Math.floor(Date.now()/1000)
         },
         "inventory": {
             "all_unlocked": true,
-            "characters": "all",
-            "skins": "all",
-            "weapons": "all",
-            "emotes": "all",
-            "pets": "all",
-            "bundles": "all"
+            "characters": [],
+            "skins": [],
+            "weapons": [],
+            "emotes": [],
+            "pets": []
+        },
+        "status": "ok",
+        "result": 0
+    };
+    
+    res.json(playerInfo);
+});
+
+app.post('/GetUserInfo', (req, res) => {
+    console.log("🔓 [GetUserInfo] → Success");
+    res.json({
+        "code": 0,
+        "player": {
+            "nickname": "NaviPrivate",
+            "level": 99
         }
     });
 });
-
 app.post('/GetInventory', (req, res) => {
     console.log("🔓 [GetInventory] → All items unlocked");
     res.json({ "code": 0, "all_unlocked": true });
