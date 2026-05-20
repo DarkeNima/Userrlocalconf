@@ -177,6 +177,22 @@ app.post('/MajorLogin', (req, res) => {
 app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
 app.post('/webhook', (req, res) => { res.status(200).json({ "status": "ok" }); });
 
+// [Mock Responses] - ගේම් එක ඉල්ලන දේවල් වලට බොරු උත්තර දෙමු
+app.post('/GetLoginData', (req, res) => {
+    console.log("📡 [GetLoginData] Mocking success...");
+    res.status(200).json({ "code": 0, "msg": "ok" });
+});
+
+app.post('/GenerateNickname', (req, res) => {
+    console.log("📡 [GenerateNickname] Mocking success...");
+    res.status(200).json({ "code": 0, "nickname": "Player" });
+});
+
+app.post('/MajorRegister', (req, res) => {
+    console.log("📡 [MajorRegister] Mocking success...");
+    res.status(200).json({ "code": 0, "msg": "registered" });
+});
+
 // 4️⃣ Catch-all & TCP
 app.use((req, res, next) => { console.log(`📡 [Incoming] ${req.method} ${req.url}`); next(); });
 
