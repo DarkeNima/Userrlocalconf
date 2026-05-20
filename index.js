@@ -76,8 +76,6 @@ app.use((req, res, next) => {
 });
 
 // 1️⃣ [ver.php]
-
-// 1️⃣ [ver.php]
 app.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
     const verData = {
@@ -115,15 +113,11 @@ app.get('/ver.php', (req, res) => {
     console.log(`✅ ver.php sent`);
 });
 
-// 2️⃣ [MajorLogin] - LIVE INJECTION
+// 2️⃣ [MajorLogin]
 app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Captured! Forwarding to Garena...`);
-
+    console.log(`\n🎯 [MajorLogin] Captured!`);
     const options = {
-        hostname: TARGET_HOST,
-        port: 443,
-        path: '/MajorLogin',
-        method: 'POST',
+        hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
         headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
     };
 
@@ -132,98 +126,46 @@ app.post('/MajorLogin', (req, res) => {
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             const originalBuffer = Buffer.concat(resChunks);
-            console.log(`[←] Received Official Data (${originalBuffer.length} bytes)`);
-
             try {
                 const decoded = LoginResponseMsg.decode(originalBuffer);
                 
-                // IP Injection
-                                // ✅ IP Injection with Port
-                // ගොඩක් වෙලාවට ගේම් එකට field16 සහ 24 දෙකටම එකම දේ යන්න ඕනේ.
-                // වරහන් නැතුව IP:Port විදිහට යවමු.
+                // 🔍 DEBUG: මෙන්න මේකෙන් අපිට ගේම් එකේ ඔක්කොම රහස් පේනවා
+                console.log("🔍 [MajorLogin] Decoded Full Structure:");
+                console.log(JSON.stringify(decoded, null, 2));
+
                 decoded.field16 = `${MY_IP}:${TCP_PORT}`;
                 decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-                console.log(`🛠️ Injected IP/Port: ${MY_IP}:${TCP_PORT}`);
-
-                // Field 22/23 Replacement
+                
                 if (decoded.field22) {
-                    let serverList = decoded.field22.toString();
-                    serverList = serverList.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    serverList = serverList.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field22 = Buffer.from(serverList);
-                    console.log("💉 Replaced server list in field22");
+                    let s = decoded.field22.toString();
+                    s = s.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP).replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field22 = Buffer.from(s);
                 }
-
-                if (decoded.field23) {
-                    let serverList2 = decoded.field23.toString();
-                    serverList2 = serverList2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    serverList2 = serverList2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field23 = Buffer.from(serverList2);
-                    console.log("💉 Replaced server list in field23");
-                }
-
-                const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
-                res.send(modifiedBuffer);
-                console.log("✅ Full injection done!");
-
+                
+                res.send(LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish());
+                console.log("✅ Injection Successful");
             } catch (err) {
                 console.error("❌ Decode failed:", err.message);
                 res.send(originalBuffer);
             }
         });
     });
-
-    proxyReq.on('error', (err) => {
-        console.error("❌ Proxy Error:", err.message);
-        res.status(500).send("Proxy Error");
-    });
-
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
-// 3️⃣ [Unknown Request Catch-all] - ලොබි එකේදී එන ඕනෑම HTTPS රික්වෙස්ට් එකක් අල්ලන්න
- // 3️⃣ [Unknown Request Catch-all] - Express 5+ වලදී '*' වෙනුවට '(.*)' පාවිච්චි කරන්න
+// 3️⃣ Ping & Webhook
+app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
+app.post('/webhook', (req, res) => { res.status(200).json({ "status": "ok" }); });
 
-// 3️⃣ [Ping Handler] - ගේම් එක සර්වර් එක Check කරන වෙලාව
-app.post('/Ping', (req, res) => {
-    console.log("📡 [Ping] Heartbeat received from game");
-    res.status(200).send("OK"); // ගේම් එකට "මම ඉන්නවා" කියලා කියමු
-});
+// 4️⃣ Catch-all & TCP
+app.use((req, res, next) => { console.log(`📡 [Incoming] ${req.method} ${req.url}`); next(); });
 
-// 4️⃣ [Unknown Request Catch-all] - මේක පල්ලෙහින්ම තියෙන්න ඕනේ
-app.use((req, res, next) => {
-    // මේ ලොග් එක හැම රික්වෙස්ට් එකකටම වැටෙන්න ඉඩ දෙන්න
-    console.log(`📡 [Incoming] ${req.method} ${req.url}`);
-    next();
-});
-
-// [Webhook Handler] - ගේම් එක මේකට එනවා නම් අපි ඒකට උත්තර දෙමු
-app.post('/webhook', (req, res) => {
-    console.log("📡 [Webhook] Received request from game!");
-    
-    // මේක සාමාන්‍යයෙන් JSON එකක් විදියට එන්නේ. අපි නිකන්ම "OK" යවලා බලමු
-    // සමහර වෙලාවට මේකට හරියටම ගැලපෙන Response එකක් දෙන්න ඕනේ (උදා: {"status": "ok"})
-    res.status(200).json({ "status": "ok" });
-});
-
-    
-// 4️⃣ [TCP Server]
 const tcpServer = net.createServer((socket) => {
-    console.log(`\n🔥 [TCP] Game Client Connected: ${socket.remoteAddress}`);
-    
-    socket.on('data', (data) => {
-        // එන ඩේටා ටික Hex විදිහට ලොග් කරමු මොනවද තියෙන්නේ කියලා බලන්න
-        console.log(`[TCP] Received: ${data.length} bytes`);
-        console.log(`[TCP] Data (Hex): ${data.toString('hex').slice(0, 50)}...`);
-    });
-
-    socket.on('close', () => console.log(`[TCP] Connection Closed`));
-    socket.on('error', (err) => console.log(`[TCP] TCP Error: ${err.message}`));
+    console.log(`\n🔥 [TCP] Client Connected: ${socket.remoteAddress}`);
+    socket.on('data', (data) => console.log(`[TCP] Received: ${data.length} bytes`));
 });
+tcpServer.listen(TCP_PORT, '0.0.0.0');
 
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on Port ${TCP_PORT}`));
-
-// Start Servers
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
+http.createServer(app).listen(HTTP_PORT);
+https.createServer(sslOptions, app).listen(HTTPS_PORT);
