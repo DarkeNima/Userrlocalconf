@@ -115,63 +115,31 @@ app.get('/ver.php', (req, res) => {
 
 // 2️⃣ [MajorLogin]
 app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Captured!`);
+    console.log(`\n🎯 [MajorLogin] Intercepting request...`);
+    
     const options = {
         hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
-        headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
+        headers: { ...req.headers, 'host': TARGET_HOST }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        const resChunks = [];
-        proxyRes.on('data', chunk => resChunks.push(chunk));
+        let responseData = [];
+        proxyRes.on('data', chunk => responseData.push(chunk));
         proxyRes.on('end', () => {
-            const originalBuffer = Buffer.concat(resChunks);
-            try {
-                const decoded = LoginResponseMsg.decode(originalBuffer);
-                
-                // 🔍 DEBUG: මෙන්න මේකෙන් අපිට ගේම් එකේ ඔක්කොම රහස් පේනවා
-                console.log("🔍 [MajorLogin] Decoded Full Structure:");
-                console.log(JSON.stringify(decoded, null, 2));
+            const fullData = Buffer.concat(responseData);
+            console.log(`[!] Captured ${fullData.length} bytes from Official Server`);
+            
+            // මේක පේස්ට් කරන්න මට එවන්න!
+            console.log("HEX DATA: " + fullData.toString('hex'));
 
-                                // ✅ Full Redirection Logic
-                const NEW_SERVER_LIST = `${MY_IP}:${TCP_PORT}`;
-
-                // 1. field16 සහ field24 සම්පූර්ණයෙන්ම ඔයාගේ සර්වර් එකට
-                decoded.field16 = NEW_SERVER_LIST;
-                decoded.field24 = NEW_SERVER_LIST;
-
-                // 2. field10 (Core URL) එකත් අපේ සර්වර් එකට
-                decoded.field10 = MY_URL_HTTPS;
-
-                // 3. field22 සහ 23 වල තියෙන ඒවා Replace කරන්න
-                // මේවා bytes නිසා අපි string කරලා ආයෙත් buffer කරනවා
-                if (decoded.field22) {
-                    let s = decoded.field22.toString();
-                    // සියලුම IP සහ Domain ඔයාගේ IP එකට
-                    s = s.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    s = s.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field22 = Buffer.from(s);
-                }
-                
-                if (decoded.field23) {
-                    let s2 = decoded.field23.toString();
-                    s2 = s2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    s2 = s2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field23 = Buffer.from(s2);
-                }
-
-                
-                res.send(LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish());
-                console.log("✅ Injection Successful");
-            } catch (err) {
-                console.error("❌ Decode failed:", err.message);
-                res.send(originalBuffer);
-            }
+            // දැනට Injection එකක් කරන්නේ නැතුව ඔරිජිනල් එකම යවමු, මොකද වෙන්නේ බලන්න
+            res.send(fullData);
         });
     });
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
+
 
 // 3️⃣ Ping & Webhook
 app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
