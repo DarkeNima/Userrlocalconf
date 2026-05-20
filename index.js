@@ -157,7 +157,8 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // 3️⃣ [Unknown Request Catch-all] - ලොබි එකේදී එන ඕනෑම HTTPS රික්වෙස්ට් එකක් අල්ලන්න
-app.all('*', (req, res) => {
+ // 3️⃣ [Unknown Request Catch-all] - Express 5+ වලදී '*' වෙනුවට '(.*)' පාවිච්චි කරන්න
+app.all('(.*)', (req, res) => {
     console.log(`📡 [Unknown Request] ${req.method} ${req.url}`);
     console.log(`   Headers: ${JSON.stringify(req.headers)}`);
     if(req.rawBody && req.rawBody.length > 0) {
@@ -166,6 +167,7 @@ app.all('*', (req, res) => {
     // දැනට මුකුත් නොකර 404 යවමු, මොනවද එන්නේ කියලා විතරක් බලන්න
     res.status(404).send("Not Found");
 });
+
     
 // 4️⃣ [TCP Server]
 const tcpServer = net.createServer((socket) => {
