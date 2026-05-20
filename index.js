@@ -76,7 +76,7 @@ app.use((req, res, next) => {
 });
 
 // 1️⃣ ver.php
-app.get('/ver.php', (req, res) => {
+
     
 // 1️⃣ [ver.php]
 app.get('/ver.php', (req, res) => {
