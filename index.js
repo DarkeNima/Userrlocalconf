@@ -116,160 +116,56 @@ app.get('/ver.php', (req, res) => {
     console.log(`✅ ver.php sent`);
 });
 // 2️⃣ MajorLogin
-app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Captured!`);
+        app.use((req, res, next) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+        req.rawBody = Buffer.concat(chunks);
+        console.log(`\n📥 [${req.method}] ${req.originalUrl}`);
+        if (req.rawBody.length > 0) {
+            console.log("📦 Request Body Size:", req.rawBody.length);
+        }
+        next();
+    });
+});
 
+// Transparent Forwarding + Full Logging
+app.use((req, res) => {
     const options = {
-        hostname: TARGET_HOST,
+        hostname: 'loginbp.ggpolarbear.com',
         port: 443,
-        path: '/MajorLogin',
-        method: 'POST',
-        headers: { ...req.headers, 'host': TARGET_HOST }
+        path: req.originalUrl,
+        method: req.method,
+        headers: { ...req.headers, host: 'loginbp.ggpolarbear.com' }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        const resChunks = [];
-        proxyRes.on('data', chunk => resChunks.push(chunk));
+        let chunks = [];
+        proxyRes.on('data', chunk => chunks.push(chunk));
         proxyRes.on('end', () => {
-            const originalBuffer = Buffer.concat(resChunks);
-            try {
-                const decoded = LoginResponseMsg.decode(originalBuffer);
-
-                const NEW_SERVER_LIST = `\( {MY_IP}: \){TCP_PORT}`;
-                decoded.field16 = NEW_SERVER_LIST;
-                decoded.field24 = NEW_SERVER_LIST;
-                decoded.field10 = MY_URL_HTTPS;
-
-                if (decoded.field22) {
-                    let s = decoded.field22.toString();
-                    s = s.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    s = s.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field22 = Buffer.from(s);
-                }
-                if (decoded.field23) {
-                    let s2 = decoded.field23.toString();
-                    s2 = s2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    s2 = s2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field23 = Buffer.from(s2);
-                }
-
-                res.send(LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish());
-                console.log("✅ MajorLogin Injection Successful");
-            } catch (err) {
-                console.error("❌ Decode failed:", err.message);
-                res.send(originalBuffer);
-            }
+            const buffer = Buffer.concat(chunks);
+            
+            console.log(`📤 Response ${req.originalUrl} | Status: ${proxyRes.statusCode} | Size: ${buffer.length} bytes`);
+            
+            // Try to decode if it's protobuf
+            console.log("🔍 First 50 bytes:", buffer.slice(0, 50).toString('hex'));
+            
+            res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/octet-stream');
+            res.status(proxyRes.statusCode).send(buffer);
         });
     });
-    proxyReq.write(req.rawBody);
+
+    proxyReq.on('error', (e) => {
+        console.error("Proxy Error:", e.message);
+        res.status(502).send("Proxy Error");
+    });
+
+    if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
-// ====================== FULL UNLOCK ROUTES ======================
-
-// ====================== BETTER FULL UNLOCK (Original Style) ======================
-app.post('/GetPlayerInfo', (req, res) => {
-    console.log("🔓 [GetPlayerInfo] → Original Style Full Unlock");
-    
-    const playerInfo = {
-        "code": 0,
-        "msg": "success",
-        "player": {
-            "uid": "6969696969",
-            "nickname": "NaviPrivate",
-            "level": 99,
-            "exp": 999999999,
-            "vip_level": 12,
-            "gold": 999999999,
-            "diamond": 999999999,
-            "honor": 999999,
-            "create_time": Math.floor(Date.now()/1000),
-            "last_login_time": Math.floor(Date.now()/1000)
-        },
-        "inventory": {
-            "all_unlocked": true,
-            "characters": [],
-            "skins": [],
-            "weapons": [],
-            "emotes": [],
-            "pets": []
-        },
-        "status": "ok",
-        "result": 0
-    };
-    
-    res.json(playerInfo);
-});
-
-app.post('/GetUserInfo', (req, res) => {
-    console.log("🔓 [GetUserInfo] → Success");
-    res.json({
-        "code": 0,
-        "player": {
-            "nickname": "NaviPrivate",
-            "level": 99
-        }
-    });
-});
-app.post('/GetInventory', (req, res) => {
-    console.log("🔓 [GetInventory] → All items unlocked");
-    res.json({ "code": 0, "all_unlocked": true });
-});
-
-app.post('/GetUserInfo', (req, res) => {
-    console.log("🔓 [GetUserInfo] → Success");
-    res.json({ "code": 0 });
-});
-
-app.post('/GetLoginData', (req, res) => {
-    console.log("🔓 [GetLoginData] → Success");
-    res.json({ "code": 0 });
-});
-
-// Other common endpoints
-app.post('/Ping', (req, res) => { res.send("OK"); });
-app.post('/GetConfig', (req, res) => { res.json({ "code": 0 }); });
-
-// Catch-all Forwarding
-app.use((req, res, next) => {
-    if (req.method === 'POST' && !['/MajorLogin', '/GetPlayerInfo', '/GetInventory', '/GetUserInfo', '/GetLoginData'].includes(req.path)) {
-        console.log(`➡️ Forwarding ${req.path}`);
-        
-        const options = {
-            hostname: TARGET_HOST,
-            port: 443,
-            path: req.originalUrl,
-            method: 'POST',
-            headers: { ...req.headers, host: TARGET_HOST }
-        };
-
-        const proxyReq = https.request(options, (proxyRes) => {
-            let chunks = [];
-            proxyRes.on('data', c => chunks.push(c));
-            proxyRes.on('end', () => res.send(Buffer.concat(chunks)));
-        });
-
-        proxyReq.on('error', () => res.status(200).send('{}'));
-        if (req.rawBody) proxyReq.write(req.rawBody);
-        proxyReq.end();
-    }
-});
-
-// TCP Server
-const tcpServer = net.createServer((socket) => {
-    console.log(`🔥 [TCP] Client Connected: ${socket.remoteAddress}`);
-    const target = net.createConnection({ host: TARGET_BATTLE_HOST, port: 7006 });
-    socket.pipe(target);
-    target.pipe(socket);
-});
-
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Proxy on ${TCP_PORT}`));
-
-// Start Servers
-http.createServer(app).listen(HTTP_PORT, () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
-https.createServer(sslOptions, app).listen(HTTPS_PORT, () => {
-    console.log(`🔒 HTTPS on ${HTTPS_PORT}`);
-    console.log(`\n==================================`);
-    console.log(`   PRIVATE SERVER IS RUNNING`);
-    console.log(`==================================\n`);
+// Start
+http.createServer(app).listen(8080, () => {
+    console.log("🚀 MITM Proxy Running on Port 8080");
+    console.log("Use this as your proxy server");
 });
