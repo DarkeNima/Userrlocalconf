@@ -190,11 +190,8 @@ app.post('/Ping', (req, res) => {
 
 // 4️⃣ [Unknown Request Catch-all] - මේක පල්ලෙහින්ම තියෙන්න ඕනේ
 app.use((req, res, next) => {
-    if (req.url !== '/ver.php' && req.url !== '/MajorLogin' && req.url !== '/Ping') {
-        console.log(`\n📡 [Unknown Request] ${req.method} ${req.url}`);
-        // ... (අනිත් ලොග් ටික)
-        return res.status(404).send("Not Found");
-    }
+    // මේ ලොග් එක හැම රික්වෙස්ට් එකකටම වැටෙන්න ඉඩ දෙන්න
+    console.log(`📡 [Incoming] ${req.method} ${req.url}`);
     next();
 });
 
@@ -203,11 +200,15 @@ app.use((req, res, next) => {
 // 4️⃣ [TCP Server]
 const tcpServer = net.createServer((socket) => {
     console.log(`\n🔥 [TCP] Game Client Connected: ${socket.remoteAddress}`);
+    
     socket.on('data', (data) => {
-        console.log(`[TCP] Received: ${data.length} bytes from client`);
+        // එන ඩේටා ටික Hex විදිහට ලොග් කරමු මොනවද තියෙන්නේ කියලා බලන්න
+        console.log(`[TCP] Received: ${data.length} bytes`);
+        console.log(`[TCP] Data (Hex): ${data.toString('hex').slice(0, 50)}...`);
     });
+
     socket.on('close', () => console.log(`[TCP] Connection Closed`));
-    socket.on('error', (err) => console.log(`[TCP] Error: ${err.message}`));
+    socket.on('error', (err) => console.log(`[TCP] TCP Error: ${err.message}`));
 });
 
 tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on Port ${TCP_PORT}`));
