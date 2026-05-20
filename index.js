@@ -166,7 +166,7 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // ====================== FULL UNLOCK ROUTES ======================
-app.post('/GetPlayerInfo', (req, res) => {
+
 // ====================== BETTER FULL UNLOCK (Original Style) ======================
 app.post('/GetPlayerInfo', (req, res) => {
     console.log("🔓 [GetPlayerInfo] → Original Style Full Unlock");
