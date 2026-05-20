@@ -114,26 +114,35 @@ app.get('/ver.php', (req, res) => {
 });
 
 // 2️⃣ [MajorLogin]
+// [MajorLogin] - Smart Proxying
 app.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Intercepting request...`);
-    
     const options = {
         hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
         headers: { ...req.headers, 'host': TARGET_HOST }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        let responseData = [];
-        proxyRes.on('data', chunk => responseData.push(chunk));
+        let resChunks = [];
+        proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
-            const fullData = Buffer.concat(responseData);
-            console.log(`[!] Captured ${fullData.length} bytes from Official Server`);
-            
-            // මේක පේස්ට් කරන්න මට එවන්න!
-            console.log("HEX DATA: " + fullData.toString('hex'));
+            const originalBuffer = Buffer.concat(resChunks);
+            try {
+                // 1. Decode කරමු
+                const decoded = LoginResponseMsg.decode(originalBuffer);
+                
+                // 2. ගේම් එකට අත්‍යවශ්‍ය IP ටික විතරක් මාරු කරමු
+                // field16 සහ 24 වල තියෙන Garena IP ලිස්ට් එක අපේ IP එකට
+                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+                decoded.field24 = `${MY_IP}:${TCP_PORT}`;
 
-            // දැනට Injection එකක් කරන්නේ නැතුව ඔරිජිනල් එකම යවමු, මොකද වෙන්නේ බලන්න
-            res.send(fullData);
+                // 3. Encode කරලා යවමු
+                const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
+                res.send(modifiedBuffer);
+                console.log("✅ Smart Injection Done!");
+            } catch (e) {
+                // Decode වුණේ නැත්නම් Original එකම යවමු
+                res.send(originalBuffer);
+            }
         });
     });
     proxyReq.write(req.rawBody);
