@@ -157,11 +157,52 @@ app.post('/MajorLogin', (req, res) => {
 });
 
 // ====================== Critical Account Endpoints ======================
+// ====================== FULL UNLOCK - GetPlayerInfo ======================
 app.post('/GetPlayerInfo', (req, res) => {
-    console.log("📡 GetPlayerInfo - Forwarding to Official");
-    forwardToGarena(req, res);
+    console.log("📡 [GetPlayerInfo] → Sending FULL UNLOCK Data");
+    
+    const unlockData = {
+        "code": 0,
+        "player": {
+            "uid": "123456789",
+            "nickname": "NaviPrivate",
+            "level": 99,
+            "exp": 999999,
+            "vip_level": 10,
+            "gold": 99999999,
+            "diamond": 99999999,
+            "honor": 999999
+        },
+        "inventory": {
+            "characters": ["all"],   // සියලුම characters unlock
+            "skins": ["all"],
+            "weapons": ["all"],
+            "bundles": ["all"],
+            "emotes": ["all"],
+            "pets": ["all"]
+        },
+        "unlocked_all": true,
+        "all_items_unlocked": true
+    };
+    
+    res.status(200).json(unlockData);
 });
 
+// ====================== GetInventory / Shop / Other ======================
+app.post('/GetInventory', (req, res) => {
+    console.log("📡 [GetInventory] → Full Unlock");
+    res.json({ "code": 0, "items": "all_unlocked" });
+});
+
+app.post('/GetShop', (req, res) => {
+    console.log("📡 [GetShop] → All items available");
+    res.json({ "code": 0, "shop_items": "all_unlocked" });
+});
+
+app.post('/GetCharacterList', (req, res) => {
+    console.log("📡 [GetCharacterList] → All characters unlocked");
+    res.json({ "code": 0, "characters": "all" });
+});
 app.post('/GetUserInfo', (req, res) => {
     console.log("📡 GetUserInfo - Forwarding");
     forwardToGarena(req, res);
