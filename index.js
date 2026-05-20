@@ -133,14 +133,33 @@ app.post('/MajorLogin', (req, res) => {
                 console.log("🔍 [MajorLogin] Decoded Full Structure:");
                 console.log(JSON.stringify(decoded, null, 2));
 
-                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-                
+                                // ✅ Full Redirection Logic
+                const NEW_SERVER_LIST = `${MY_IP}:${TCP_PORT}`;
+
+                // 1. field16 සහ field24 සම්පූර්ණයෙන්ම ඔයාගේ සර්වර් එකට
+                decoded.field16 = NEW_SERVER_LIST;
+                decoded.field24 = NEW_SERVER_LIST;
+
+                // 2. field10 (Core URL) එකත් අපේ සර්වර් එකට
+                decoded.field10 = MY_URL_HTTPS;
+
+                // 3. field22 සහ 23 වල තියෙන ඒවා Replace කරන්න
+                // මේවා bytes නිසා අපි string කරලා ආයෙත් buffer කරනවා
                 if (decoded.field22) {
                     let s = decoded.field22.toString();
-                    s = s.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP).replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    // සියලුම IP සහ Domain ඔයාගේ IP එකට
+                    s = s.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    s = s.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
                     decoded.field22 = Buffer.from(s);
                 }
+                
+                if (decoded.field23) {
+                    let s2 = decoded.field23.toString();
+                    s2 = s2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    s2 = s2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field23 = Buffer.from(s2);
+                }
+
                 
                 res.send(LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish());
                 console.log("✅ Injection Successful");
