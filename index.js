@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const path = require('path');
 const net = require('net');
 const protobuf = require('protobufjs');
 
@@ -16,6 +15,7 @@ const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 const TARGET_HOST = 'loginbp.ggpolarbear.com'; 
+const TARGET_BATTLE_HOST = 'csoversea.stronghold.freefiremobile.com';
 
 // Protobuf Schema
 const root = protobuf.Root.fromJSON({
@@ -68,13 +68,16 @@ try {
     process.exit(1);
 }
 
-// Raw Body Capture Middleware
+// Raw Body Capture
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
 });
 
+// 1️⃣ ver.php
+app.get('/ver.php', (req, res) => {
+    
 // 1️⃣ [ver.php]
 app.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
@@ -98,8 +101,8 @@ app.get('/ver.php', (req, res) => {
         "server_url": `${MY_URL_HTTPS}/`, 
         "is_review_server": false,
         "use_login_optional_download": true,
-        "use_background_download": true,
-        "use_background_download_lobby": true,
+        "use_background_download": false,
+        "use_background_download_lobby": false,
         "country_code": "SG",
         "client_ip": clientIp,
         "gdpr_version": 0,
@@ -112,147 +115,135 @@ app.get('/ver.php', (req, res) => {
     res.status(200).json(verData);
     console.log(`✅ ver.php sent`);
 });
-
-// 2️⃣ [MajorLogin]
-// [MajorLogin] - Smart Proxying
-// ====================== MajorLogin ======================
+// 2️⃣ MajorLogin
 app.post('/MajorLogin', (req, res) => {
-    console.log("🎯 MajorLogin Captured - Injecting...");
+    console.log(`\n🎯 [MajorLogin] Captured!`);
 
     const options = {
         hostname: TARGET_HOST,
         port: 443,
         path: '/MajorLogin',
         method: 'POST',
-        headers: { ...req.headers, host: TARGET_HOST }
-    };
-
-    https.request(options, (proxyRes) => {
-        let chunks = [];
-        proxyRes.on('data', c => chunks.push(c));
-        proxyRes.on('end', () => {
-            let buffer = Buffer.concat(chunks);
-            try {
-                let decoded = LoginResponseMsg.decode(buffer);
-                decoded.field16 = `\( {MY_IP}: \){TCP_PORT}`;
-                decoded.field24 = `\( {MY_IP}: \){TCP_PORT}`;
-
-                if (decoded.field22) {
-                    let s = decoded.field22.toString().replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    decoded.field22 = Buffer.from(s);
-                }
-                if (decoded.field23) {
-                    let s = decoded.field23.toString().replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
-                    decoded.field23 = Buffer.from(s);
-                }
-
-                buffer = LoginResponseMsg.encode(decoded).finish();
-                console.log("💉 MajorLogin Injection Success");
-            } catch (e) {
-                console.log("⚠️ Decode failed");
-            }
-            res.send(buffer);
-        });
-    }).on('error', () => res.status(500).send("Error")).end(req.rawBody);
-});
-
-// ====================== Critical Account Endpoints ======================
-// ====================== FULL UNLOCK - GetPlayerInfo ======================
-app.post('/GetPlayerInfo', (req, res) => {
-    console.log("📡 [GetPlayerInfo] → Sending FULL UNLOCK Data");
-    
-    const unlockData = {
-        "code": 0,
-        "player": {
-            "uid": "123456789",
-            "nickname": "NaviPrivate",
-            "level": 99,
-            "exp": 999999,
-            "vip_level": 10,
-            "gold": 99999999,
-            "diamond": 99999999,
-            "honor": 999999
-        },
-        "inventory": {
-            "characters": ["all"],   // සියලුම characters unlock
-            "skins": ["all"],
-            "weapons": ["all"],
-            "bundles": ["all"],
-            "emotes": ["all"],
-            "pets": ["all"]
-        },
-        "unlocked_all": true,
-        "all_items_unlocked": true
-    };
-    
-    res.status(200).json(unlockData);
-});
-
-// ====================== GetInventory / Shop / Other ======================
-app.post('/GetInventory', (req, res) => {
-    console.log("📡 [GetInventory] → Full Unlock");
-    res.json({ "code": 0, "items": "all_unlocked" });
-});
-
-app.post('/GetShop', (req, res) => {
-    console.log("📡 [GetShop] → All items available");
-    res.json({ "code": 0, "shop_items": "all_unlocked" });
-});
-
-app.post('/GetCharacterList', (req, res) => {
-    console.log("📡 [GetCharacterList] → All characters unlocked");
-    res.json({ "code": 0, "characters": "all" });
-});
-app.post('/GetUserInfo', (req, res) => {
-    console.log("📡 GetUserInfo - Forwarding");
-    forwardToGarena(req, res);
-});
-
-app.post('/GetLoginData', (req, res) => {
-    console.log("📡 GetLoginData");
-    forwardToGarena(req, res);
-});
-
-// Forward Function
-function forwardToGarena(req, res) {
-    const options = {
-        hostname: TARGET_HOST,
-        port: 443,
-        path: req.originalUrl,
-        method: 'POST',
-        headers: { ...req.headers, host: TARGET_HOST }
+        headers: { ...req.headers, 'host': TARGET_HOST }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        let chunks = [];
-        proxyRes.on('data', c => chunks.push(c));
+        const resChunks = [];
+        proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
-            res.send(Buffer.concat(chunks));
+            const originalBuffer = Buffer.concat(resChunks);
+            try {
+                const decoded = LoginResponseMsg.decode(originalBuffer);
+
+                const NEW_SERVER_LIST = `\( {MY_IP}: \){TCP_PORT}`;
+                decoded.field16 = NEW_SERVER_LIST;
+                decoded.field24 = NEW_SERVER_LIST;
+                decoded.field10 = MY_URL_HTTPS;
+
+                if (decoded.field22) {
+                    let s = decoded.field22.toString();
+                    s = s.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    s = s.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field22 = Buffer.from(s);
+                }
+                if (decoded.field23) {
+                    let s2 = decoded.field23.toString();
+                    s2 = s2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    s2 = s2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field23 = Buffer.from(s2);
+                }
+
+                res.send(LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish());
+                console.log("✅ MajorLogin Injection Successful");
+            } catch (err) {
+                console.error("❌ Decode failed:", err.message);
+                res.send(originalBuffer);
+            }
         });
     });
-
-    proxyReq.on('error', () => res.status(200).send('{}'));
-    if (req.rawBody) proxyReq.write(req.rawBody);
+    proxyReq.write(req.rawBody);
     proxyReq.end();
-}
+});
 
-// Catch All Other
+// ====================== FULL UNLOCK ROUTES ======================
+app.post('/GetPlayerInfo', (req, res) => {
+    console.log("🔓 [GetPlayerInfo] → FULL UNLOCK SENT");
+    res.json({
+        "code": 0,
+        "player": {
+            "uid": "6969696969",
+            "nickname": "NaviPrivate",
+            "level": 99,
+            "exp": 999999999,
+            "vip_level": 12,
+            "gold": 999999999,
+            "diamond": 999999999
+        },
+        "inventory": {
+            "all_unlocked": true,
+            "characters": "all",
+            "skins": "all",
+            "weapons": "all",
+            "emotes": "all",
+            "pets": "all",
+            "bundles": "all"
+        }
+    });
+});
+
+app.post('/GetInventory', (req, res) => {
+    console.log("🔓 [GetInventory] → All items unlocked");
+    res.json({ "code": 0, "all_unlocked": true });
+});
+
+app.post('/GetUserInfo', (req, res) => {
+    console.log("🔓 [GetUserInfo] → Success");
+    res.json({ "code": 0 });
+});
+
+app.post('/GetLoginData', (req, res) => {
+    console.log("🔓 [GetLoginData] → Success");
+    res.json({ "code": 0 });
+});
+
+// Other common endpoints
+app.post('/Ping', (req, res) => { res.send("OK"); });
+app.post('/GetConfig', (req, res) => { res.json({ "code": 0 }); });
+
+// Catch-all Forwarding
 app.use((req, res, next) => {
-    if (req.method === 'POST' && !['/MajorLogin', '/GetPlayerInfo', '/GetUserInfo', '/GetLoginData'].includes(req.path)) {
+    if (req.method === 'POST' && !['/MajorLogin', '/GetPlayerInfo', '/GetInventory', '/GetUserInfo', '/GetLoginData'].includes(req.path)) {
         console.log(`➡️ Forwarding ${req.path}`);
-        forwardToGarena(req, res);
+        
+        const options = {
+            hostname: TARGET_HOST,
+            port: 443,
+            path: req.originalUrl,
+            method: 'POST',
+            headers: { ...req.headers, host: TARGET_HOST }
+        };
+
+        const proxyReq = https.request(options, (proxyRes) => {
+            let chunks = [];
+            proxyRes.on('data', c => chunks.push(c));
+            proxyRes.on('end', () => res.send(Buffer.concat(chunks)));
+        });
+
+        proxyReq.on('error', () => res.status(200).send('{}'));
+        if (req.rawBody) proxyReq.write(req.rawBody);
+        proxyReq.end();
     }
 });
 
-// TCP Proxy
-const tcpServer = net.createServer((client) => {
-    console.log(`🔥 TCP Client Connected: ${client.remoteAddress}`);
+// TCP Server
+const tcpServer = net.createServer((socket) => {
+    console.log(`🔥 [TCP] Client Connected: ${socket.remoteAddress}`);
     const target = net.createConnection({ host: TARGET_BATTLE_HOST, port: 7006 });
-    client.pipe(target);
-    target.pipe(client);
+    socket.pipe(target);
+    target.pipe(socket);
 });
 
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP on ${TCP_PORT}`));
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Proxy on ${TCP_PORT}`));
 
 // Start Servers
 http.createServer(app).listen(HTTP_PORT, () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
