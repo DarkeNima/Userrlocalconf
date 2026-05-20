@@ -115,69 +115,109 @@ app.get('/ver.php', (req, res) => {
 
 // 2️⃣ [MajorLogin]
 // [MajorLogin] - Smart Proxying
+// ====================== MajorLogin ======================
 app.post('/MajorLogin', (req, res) => {
+    console.log("🎯 MajorLogin Captured - Injecting...");
+
     const options = {
-        hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
-        headers: { ...req.headers, 'host': TARGET_HOST }
+        hostname: TARGET_HOST,
+        port: 443,
+        path: '/MajorLogin',
+        method: 'POST',
+        headers: { ...req.headers, host: TARGET_HOST }
+    };
+
+    https.request(options, (proxyRes) => {
+        let chunks = [];
+        proxyRes.on('data', c => chunks.push(c));
+        proxyRes.on('end', () => {
+            let buffer = Buffer.concat(chunks);
+            try {
+                let decoded = LoginResponseMsg.decode(buffer);
+                decoded.field16 = `\( {MY_IP}: \){TCP_PORT}`;
+                decoded.field24 = `\( {MY_IP}: \){TCP_PORT}`;
+
+                if (decoded.field22) {
+                    let s = decoded.field22.toString().replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    decoded.field22 = Buffer.from(s);
+                }
+                if (decoded.field23) {
+                    let s = decoded.field23.toString().replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    decoded.field23 = Buffer.from(s);
+                }
+
+                buffer = LoginResponseMsg.encode(decoded).finish();
+                console.log("💉 MajorLogin Injection Success");
+            } catch (e) {
+                console.log("⚠️ Decode failed");
+            }
+            res.send(buffer);
+        });
+    }).on('error', () => res.status(500).send("Error")).end(req.rawBody);
+});
+
+// ====================== Critical Account Endpoints ======================
+app.post('/GetPlayerInfo', (req, res) => {
+    console.log("📡 GetPlayerInfo - Forwarding to Official");
+    forwardToGarena(req, res);
+});
+
+app.post('/GetUserInfo', (req, res) => {
+    console.log("📡 GetUserInfo - Forwarding");
+    forwardToGarena(req, res);
+});
+
+app.post('/GetLoginData', (req, res) => {
+    console.log("📡 GetLoginData");
+    forwardToGarena(req, res);
+});
+
+// Forward Function
+function forwardToGarena(req, res) {
+    const options = {
+        hostname: TARGET_HOST,
+        port: 443,
+        path: req.originalUrl,
+        method: 'POST',
+        headers: { ...req.headers, host: TARGET_HOST }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        let resChunks = [];
-        proxyRes.on('data', chunk => resChunks.push(chunk));
+        let chunks = [];
+        proxyRes.on('data', c => chunks.push(c));
         proxyRes.on('end', () => {
-            const originalBuffer = Buffer.concat(resChunks);
-            try {
-                // 1. Decode කරමු
-                const decoded = LoginResponseMsg.decode(originalBuffer);
-                
-                // 2. ගේම් එකට අත්‍යවශ්‍ය IP ටික විතරක් මාරු කරමු
-                // field16 සහ 24 වල තියෙන Garena IP ලිස්ට් එක අපේ IP එකට
-                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-                decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-
-                // 3. Encode කරලා යවමු
-                const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
-                res.send(modifiedBuffer);
-                console.log("✅ Smart Injection Done!");
-            } catch (e) {
-                // Decode වුණේ නැත්නම් Original එකම යවමු
-                res.send(originalBuffer);
-            }
+            res.send(Buffer.concat(chunks));
         });
     });
-    proxyReq.write(req.rawBody);
+
+    proxyReq.on('error', () => res.status(200).send('{}'));
+    if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
+}
+
+// Catch All Other
+app.use((req, res, next) => {
+    if (req.method === 'POST' && !['/MajorLogin', '/GetPlayerInfo', '/GetUserInfo', '/GetLoginData'].includes(req.path)) {
+        console.log(`➡️ Forwarding ${req.path}`);
+        forwardToGarena(req, res);
+    }
 });
 
-
-// 3️⃣ Ping & Webhook
-app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
-app.post('/webhook', (req, res) => { res.status(200).json({ "status": "ok" }); });
-
-// [Mock Responses] - ගේම් එක ඉල්ලන දේවල් වලට බොරු උත්තර දෙමු
-app.post('/GetLoginData', (req, res) => {
-    console.log("📡 [GetLoginData] Mocking success...");
-    res.status(200).json({ "code": 0, "msg": "ok" });
+// TCP Proxy
+const tcpServer = net.createServer((client) => {
+    console.log(`🔥 TCP Client Connected: ${client.remoteAddress}`);
+    const target = net.createConnection({ host: TARGET_BATTLE_HOST, port: 7006 });
+    client.pipe(target);
+    target.pipe(client);
 });
 
-app.post('/GenerateNickname', (req, res) => {
-    console.log("📡 [GenerateNickname] Mocking success...");
-    res.status(200).json({ "code": 0, "nickname": "Player" });
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP on ${TCP_PORT}`));
+
+// Start Servers
+http.createServer(app).listen(HTTP_PORT, () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
+https.createServer(sslOptions, app).listen(HTTPS_PORT, () => {
+    console.log(`🔒 HTTPS on ${HTTPS_PORT}`);
+    console.log(`\n==================================`);
+    console.log(`   PRIVATE SERVER IS RUNNING`);
+    console.log(`==================================\n`);
 });
-
-app.post('/MajorRegister', (req, res) => {
-    console.log("📡 [MajorRegister] Mocking success...");
-    res.status(200).json({ "code": 0, "msg": "registered" });
-});
-
-// 4️⃣ Catch-all & TCP
-app.use((req, res, next) => { console.log(`📡 [Incoming] ${req.method} ${req.url}`); next(); });
-
-const tcpServer = net.createServer((socket) => {
-    console.log(`\n🔥 [TCP] Client Connected: ${socket.remoteAddress}`);
-    socket.on('data', (data) => console.log(`[TCP] Received: ${data.length} bytes`));
-});
-tcpServer.listen(TCP_PORT, '0.0.0.0');
-
-http.createServer(app).listen(HTTP_PORT);
-https.createServer(sslOptions, app).listen(HTTPS_PORT);
