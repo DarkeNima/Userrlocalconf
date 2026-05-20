@@ -198,6 +198,14 @@ app.use((req, res, next) => {
     next();
 });
 
+// [Webhook Handler] - ගේම් එක මේකට එනවා නම් අපි ඒකට උත්තර දෙමු
+app.post('/webhook', (req, res) => {
+    console.log("📡 [Webhook] Received request from game!");
+    
+    // මේක සාමාන්‍යයෙන් JSON එකක් විදියට එන්නේ. අපි නිකන්ම "OK" යවලා බලමු
+    // සමහර වෙලාවට මේකට හරියටම ගැලපෙන Response එකක් දෙන්න ඕනේ (උදා: {"status": "ok"})
+    res.status(200).json({ "status": "ok" });
+});
 
     
 // 4️⃣ [TCP Server]
