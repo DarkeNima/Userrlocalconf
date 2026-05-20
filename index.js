@@ -142,9 +142,12 @@ app.post('/MajorLogin', (req, res) => {
                 console.log("✅ Decoded successfully");
 
                 // ✅ ඔයාගේ IP එක inject කරන්න (ප්‍රධානය) - Syntax Error Fixed
-                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
-decoded.field24 = `${MY_IP}:${TCP_PORT}`;
-console.log(`💉 Injected IP: ${MY_IP}:${TCP_PORT}`); // මේ line එක ඇතුලත් කරන්න
+                // කලින් තිබ්බ විදිය:
+// decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+
+// අලුත් විදිය:
+decoded.field16 = `${MY_IP}`;
+decoded.field24 = `${MY_IP}`;
 
                 // 🔥 වැදගත්: Server list string එකත් replace කරන්න
                 if (decoded.field22) {
