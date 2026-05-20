@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const path = require('path');
 const net = require('net');
 const protobuf = require('protobufjs');
 
@@ -10,14 +11,16 @@ const HTTP_PORT = 80;
 const HTTPS_PORT = 443;
 const TCP_PORT = 7006;
 
-// ⚙️ Config
+// ⚙️ Configuration
 const MY_DOMAIN = 'navivpn.sytes.net';
 const MY_IP = '103.6.168.170';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
-const TARGET_HOST = 'loginbp.ggpolarbear.com';
-const TARGET_BATTLE_HOST = 'csoversea.stronghold.freefiremobile.com';
+const TARGET_HOST = 'loginbp.ggpolarbear.com'; 
+const LOG_DIR = path.join(__dirname, 'logs');
 
-// Protobuf for MajorLogin
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+
+// Protobuf Schema එක Load කිරීම
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -41,40 +44,39 @@ const root = protobuf.Root.fromJSON({
             }
         },
         Field15Msg: { fields: { sub1: { type: "uint32", id: 1 } } },
-        Field25Msg: { fields: {
-            sub1: { type: "string", id: 1 },
-            sub2: { type: "uint32", id: 2 },
-            sub5: { type: "uint32", id: 5 },
-            sub6: { type: "uint32", id: 6 },
-            sub7: { type: "uint32", id: 7 }
-        }}
+        Field25Msg: {
+            fields: {
+                sub1: { type: "string", id: 1 },
+                sub2: { type: "uint32", id: 2 },
+                sub5: { type: "uint32", id: 5 },
+                sub6: { type: "uint32", id: 6 },
+                sub7: { type: "uint32", id: 7 }
+            }
+        }
     }
 });
 
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
-// SSL
+// SSL Certificates
 let sslOptions;
 try {
     sslOptions = {
         key: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/privkey.pem`),
         cert: fs.readFileSync(`/etc/letsencrypt/live/${MY_DOMAIN}/fullchain.pem`)
     };
-    console.log('✅ SSL Loaded');
+    console.log('✅ SSL Certificates loaded');
 } catch (err) {
     console.error('❌ SSL Error:', err.message);
     process.exit(1);
 }
 
-// Raw Body
+// Raw Body Capture
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
 });
-
-// ====================== MINIMAL ver.php ======================
-
 
 // 1️⃣ [ver.php]
 app.get('/ver.php', (req, res) => {
@@ -114,104 +116,92 @@ app.get('/ver.php', (req, res) => {
     console.log(`✅ ver.php sent`);
 });
 
-// ====================== MajorLogin ======================
+
+// 2️⃣ [MajorLogin] - LIVE INJECTION
 app.post('/MajorLogin', (req, res) => {
-    console.log(`🎯 [MajorLogin] Captured`);
+    console.log(`\n🎯 [MajorLogin] Captured! Forwarding to Garena...`);
 
     const options = {
         hostname: TARGET_HOST,
         port: 443,
         path: '/MajorLogin',
         method: 'POST',
-        headers: { ...req.headers, host: TARGET_HOST }
+        headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        let chunks = [];
-        proxyRes.on('data', c => chunks.push(c));
+        const resChunks = [];
+        proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
-            let buffer = Buffer.concat(chunks);
+            const originalBuffer = Buffer.concat(resChunks);
+            console.log(`[←] Received Official Data (${originalBuffer.length} bytes)`);
 
+            // 🛠️ පියවර 1: Official Data ටික Decode කරනවා
             try {
-                let decoded = LoginResponseMsg.decode(buffer);
-                
-                decoded.field16 = `\( {MY_IP}: \){TCP_PORT}`;
-                decoded.field24 = `\( {MY_IP}: \){TCP_PORT}`;
+                const decoded = LoginResponseMsg.decode(originalBuffer);
+                console.log("✅ Decoded successfully");
 
+                // ✅ ඔයාගේ IP එක inject කරන්න (ප්‍රධානය) - Syntax Error Fixed
+                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+console.log(`💉 Injected IP: ${MY_IP}:${TCP_PORT}`); // මේ line එක ඇතුලත් කරන්න
+
+                // 🔥 වැදගත්: Server list string එකත් replace කරන්න
                 if (decoded.field22) {
-                    let str = decoded.field22.toString()
-                        .replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP)
-                        .replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field22 = Buffer.from(str);
+                    let serverList = decoded.field22.toString();  // bytes → string
+                    serverList = serverList.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    serverList = serverList.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP); // සියලු official IPs replace
+                    decoded.field22 = Buffer.from(serverList);
+                    console.log("💉 Replaced server list in field22");
                 }
+
                 if (decoded.field23) {
-                    let str = decoded.field23.toString()
-                        .replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP)
-                        .replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
-                    decoded.field23 = Buffer.from(str);
+                    let serverList2 = decoded.field23.toString();
+                    serverList2 = serverList2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    serverList2 = serverList2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field23 = Buffer.from(serverList2);
+                    console.log("💉 Replaced server list in field23");
                 }
 
-                buffer = LoginResponseMsg.encode(decoded).finish();
-                console.log("💉 Injection Success");
-            } catch (e) {
-                console.log("⚠️ Decode failed");
-            }
+                const modifiedBuffer = LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish();
+                res.send(modifiedBuffer);
+                console.log("✅ Full injection done!");
 
-            res.send(buffer);
+            } catch (err) {
+                console.error("❌ Decode failed:", err.message);
+                // Decode fail වුණොත් original data යවන්න (එක පාරක්)
+                res.send(originalBuffer);
+            }
         });
     });
 
-    proxyReq.on('error', () => res.status(500).send("Error"));
+    // Handle Proxy Errors
+    proxyReq.on('error', (err) => {
+        console.error("❌ Proxy Request Error:", err.message);
+        res.status(500).send("Proxy Error");
+    });
+
+    // 🔥 අනිවාර්යයි: Garena එකට මුල් request එකේ data යවලා request එක අවසන් කිරීම
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
-// ====================== Catch All Proxy ======================
-app.use((req, res, next) => {
-    if (req.method === 'POST' && req.path !== '/MajorLogin') {
-        console.log(`➡️ Forwarding ${req.path}`);
+    
+// 3️⃣ [TCP Server] - ගේම් එක මෙතනට තමයි ඊළඟට එන්නේ
+const tcpServer = net.createServer((socket) => {
+    console.log(`\n🔥 [TCP] Game Client Connected: ${socket.remoteAddress}`);
+    
+    socket.on('data', (data) => {
+        console.log(`[TCP] Received: ${data.length} bytes`);
+        // මෙතනදී තමයි Game Play packets කියවන්න පටන් ගන්න ඕනේ
+    });
 
-        const options = {
-            hostname: TARGET_HOST,
-            port: 443,
-            path: req.originalUrl,
-            method: 'POST',
-            headers: { ...req.headers, host: TARGET_HOST, 'content-length': req.rawBody.length }
-        };
-
-        const proxyReq = https.request(options, (proxyRes) => {
-            let chunks = [];
-            proxyRes.on('data', c => chunks.push(c));
-            proxyRes.on('end', () => res.send(Buffer.concat(chunks)));
-        });
-
-        proxyReq.on('error', () => res.status(500).send("Error"));
-        proxyReq.write(req.rawBody);
-        proxyReq.end();
-    } else {
-        next();
-    }
+    socket.on('close', () => console.log(`[TCP] Connection Closed`));
+    socket.on('error', (err) => console.log(`[TCP] Error: ${err.message}`));
 });
 
-// ====================== TCP Proxy ======================
-const tcpServer = net.createServer((client) => {
-    console.log(`🔥 TCP Client: ${client.remoteAddress}`);
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => console.log(`🚀 TCP Server on Port ${TCP_PORT}`));
 
-    const target = net.createConnection({ host: TARGET_BATTLE_HOST, port: 7006 });
-
-    client.pipe(target);
-    target.pipe(client);
-
-    client.on('error', () => {});
-    target.on('error', () => {});
-});
-
-tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
-    console.log(`🚀 TCP Proxy on ${TCP_PORT}`);
-});
-
-// Start Servers
-http.createServer(app).listen(HTTP_PORT, '0.0.0.0');
-https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => {
-    console.log(`🔒 HTTPS Server Running on ${HTTPS_PORT}`);
-});
+// HTTP/HTTPS Servers
+http.createServer(app).listen(HTTP_PORT, '0.0.0.0', () => console.log(`🌐 HTTP on ${HTTP_PORT}`));
+https.createServer(sslOptions, app).listen(HTTPS_PORT, '0.0.0.0', () => console.log(`🔒 HTTPS on ${HTTPS_PORT}`));
