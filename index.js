@@ -138,9 +138,12 @@ app.post('/MajorLogin', (req, res) => {
                 const decoded = LoginResponseMsg.decode(originalBuffer);
                 
                 // IP Injection
-                decoded.field16 = MY_IP;
-                decoded.field24 = MY_IP;
-                console.log(`🛠️ Modified Fields: { f16: ${decoded.field16}, f24: ${decoded.field24} }`);
+                                // ✅ IP Injection with Port
+                // ගොඩක් වෙලාවට ගේම් එකට field16 සහ 24 දෙකටම එකම දේ යන්න ඕනේ.
+                // වරහන් නැතුව IP:Port විදිහට යවමු.
+                decoded.field16 = `${MY_IP}:${TCP_PORT}`;
+                decoded.field24 = `${MY_IP}:${TCP_PORT}`;
+                console.log(`🛠️ Injected IP/Port: ${MY_IP}:${TCP_PORT}`);
 
                 // Field 22/23 Replacement
                 if (decoded.field22) {
