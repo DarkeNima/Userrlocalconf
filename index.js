@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const path = require('path');
 const net = require('net');
 const protobuf = require('protobufjs');
 
@@ -11,11 +12,10 @@ const HTTPS_PORT = 443;
 const TCP_PORT = 7006;
 
 // ⚙️ Configuration
-const MY_DOMAIN = 'navivpn.sytes.net';
-const MY_IP = '103.6.168.170';
+const MY_DOMAIN = 'naviiautsrv.myftp.org';
+const MY_IP = '129.150.38.255';
 const MY_URL_HTTPS = `https://${MY_DOMAIN}`;
 const TARGET_HOST = 'loginbp.ggpolarbear.com'; 
-const TARGET_BATTLE_HOST = 'csoversea.stronghold.freefiremobile.com';
 
 // Protobuf Schema
 const root = protobuf.Root.fromJSON({
@@ -68,16 +68,13 @@ try {
     process.exit(1);
 }
 
-// Raw Body Capture
+// Raw Body Capture Middleware
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
 });
 
-// 1️⃣ ver.php
-
-    
 // 1️⃣ [ver.php]
 app.get('/ver.php', (req, res) => {
     const clientIp = req.ip.replace('::ffff:', '');
@@ -101,8 +98,8 @@ app.get('/ver.php', (req, res) => {
         "server_url": `${MY_URL_HTTPS}/`, 
         "is_review_server": false,
         "use_login_optional_download": true,
-        "use_background_download": false,
-        "use_background_download_lobby": false,
+        "use_background_download": true,
+        "use_background_download_lobby": true,
         "country_code": "SG",
         "client_ip": clientIp,
         "gdpr_version": 0,
@@ -115,57 +112,81 @@ app.get('/ver.php', (req, res) => {
     res.status(200).json(verData);
     console.log(`✅ ver.php sent`);
 });
-// 2️⃣ MajorLogin
-        app.use((req, res, next) => {
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => {
-        req.rawBody = Buffer.concat(chunks);
-        console.log(`\n📥 [${req.method}] ${req.originalUrl}`);
-        if (req.rawBody.length > 0) {
-            console.log("📦 Request Body Size:", req.rawBody.length);
-        }
-        next();
-    });
-});
 
-// Transparent Forwarding + Full Logging
-app.use((req, res) => {
+// 2️⃣ [MajorLogin]
+app.post('/MajorLogin', (req, res) => {
+    console.log(`\n🎯 [MajorLogin] Captured!`);
     const options = {
-        hostname: 'loginbp.ggpolarbear.com',
-        port: 443,
-        path: req.originalUrl,
-        method: req.method,
-        headers: { ...req.headers, host: 'loginbp.ggpolarbear.com' }
+        hostname: TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
+        headers: { ...req.headers, 'host': TARGET_HOST, 'content-length': req.rawBody.length }
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        let chunks = [];
-        proxyRes.on('data', chunk => chunks.push(chunk));
+        const resChunks = [];
+        proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
-            const buffer = Buffer.concat(chunks);
-            
-            console.log(`📤 Response ${req.originalUrl} | Status: ${proxyRes.statusCode} | Size: ${buffer.length} bytes`);
-            
-            // Try to decode if it's protobuf
-            console.log("🔍 First 50 bytes:", buffer.slice(0, 50).toString('hex'));
-            
-            res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/octet-stream');
-            res.status(proxyRes.statusCode).send(buffer);
+            const originalBuffer = Buffer.concat(resChunks);
+            try {
+                const decoded = LoginResponseMsg.decode(originalBuffer);
+                
+                // 🔍 DEBUG: මෙන්න මේකෙන් අපිට ගේම් එකේ ඔක්කොම රහස් පේනවා
+                console.log("🔍 [MajorLogin] Decoded Full Structure:");
+                console.log(JSON.stringify(decoded, null, 2));
+
+                                // ✅ Full Redirection Logic
+                const NEW_SERVER_LIST = `${MY_IP}:${TCP_PORT}`;
+
+                // 1. field16 සහ field24 සම්පූර්ණයෙන්ම ඔයාගේ සර්වර් එකට
+                decoded.field16 = NEW_SERVER_LIST;
+                decoded.field24 = NEW_SERVER_LIST;
+
+                // 2. field10 (Core URL) එකත් අපේ සර්වර් එකට
+                decoded.field10 = MY_URL_HTTPS;
+
+                // 3. field22 සහ 23 වල තියෙන ඒවා Replace කරන්න
+                // මේවා bytes නිසා අපි string කරලා ආයෙත් buffer කරනවා
+                if (decoded.field22) {
+                    let s = decoded.field22.toString();
+                    // සියලුම IP සහ Domain ඔයාගේ IP එකට
+                    s = s.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    s = s.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field22 = Buffer.from(s);
+                }
+                
+                if (decoded.field23) {
+                    let s2 = decoded.field23.toString();
+                    s2 = s2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, MY_IP);
+                    s2 = s2.replace(/\b34\.\d+\.\d+\.\d+\b/g, MY_IP);
+                    decoded.field23 = Buffer.from(s2);
+                }
+
+                
+                res.send(LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish());
+                console.log("✅ Injection Successful");
+            } catch (err) {
+                console.error("❌ Decode failed:", err.message);
+                res.send(originalBuffer);
+            }
         });
     });
-
-    proxyReq.on('error', (e) => {
-        console.error("Proxy Error:", e.message);
-        res.status(502).send("Proxy Error");
-    });
-
-    if (req.rawBody) proxyReq.write(req.rawBody);
+    proxyReq.write(req.rawBody);
     proxyReq.end();
 });
 
-// Start
-http.createServer(app).listen(8080, () => {
-    console.log("🚀 MITM Proxy Running on Port 8080");
-    console.log("Use this as your proxy server");
+// 3️⃣ Ping & Webhook
+app.post('/Ping', (req, res) => { res.status(200).send("OK"); });
+app.post('/webhook', (req, res) => { res.status(200).json({ "status": "ok" }); });
+
+// [Mock Responses] - ගේම් එක ඉල්ලන දේවල් වලට බොරු උත්තර දෙමු
+
+// 4️⃣ Catch-all & TCP
+app.use((req, res, next) => { console.log(`📡 [Incoming] ${req.method} ${req.url}`); next(); });
+
+const tcpServer = net.createServer((socket) => {
+    console.log(`\n🔥 [TCP] Client Connected: ${socket.remoteAddress}`);
+    socket.on('data', (data) => console.log(`[TCP] Received: ${data.length} bytes`));
 });
+tcpServer.listen(TCP_PORT, '0.0.0.0');
+
+http.createServer(app).listen(HTTP_PORT);
+https.createServer(sslOptions, app).listen(HTTPS_PORT);
