@@ -80,20 +80,20 @@ router.post('/MajorLogin', (req, res) => {
 });
 
 // 🎯 2. GetLoginData - දැන් මේක අපේ සර්වර් එකට අනිවාර්යයෙන්ම එන්න ඕනේ
+// 🎯 2. GetLoginData (මේක උඩින් තියෙන්න ඕනේ)
 router.post('/GetLoginData', (req, res) => {
     console.log(`📡 [Proxying] /GetLoginData -> Intercepting Diamonds/Gold...`);
-    
     forwardToGarena('/GetLoginData', req, res, (buffer) => {
-        // 💎 මෙන්න මෙතනදී තමයි දත්ත වෙනස් කරන්න පුළුවන් වෙන්නේ
-        // දැනට අපි ලොග් එකේ Hex ටික බලමු
         console.log(`🔍 [Raw Hex Response]: ${buffer.toString('hex')}`);
         return buffer;
     });
 });
 
-// අනෙක් හැම එකක්ම සාමාන්‍ය විදිහට Forward කරමු
-// 🎯 3. අනෙක් හැම එකක්ම (Wildcard) සාමාන්‍ය විදිහට Forward කරමු
-// '*' වෙනුවට '(.*)' පාවිච්චි කරන්න
-router.post('(.*)', (req, res) => {
-    forwardToGarena(req.path, req, res);
+// ✅ අනිත් හැම එකක්ම Forward කරන්න (Catch-all)
+router.use((req, res) => {
+    if (req.method === 'POST') {
+        forwardToGarena(req.path, req, res);
+    } else {
+        res.status(404).send('Not Found');
+    }
 });
