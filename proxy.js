@@ -92,8 +92,8 @@ router.post('/GetLoginData', (req, res) => {
 });
 
 // අනෙක් හැම එකක්ම සාමාන්‍ය විදිහට Forward කරමු
-router.post('*', (req, res) => {
+// 🎯 3. අනෙක් හැම එකක්ම (Wildcard) සාමාන්‍ය විදිහට Forward කරමු
+// '*' වෙනුවට '(.*)' පාවිච්චි කරන්න
+router.post('(.*)', (req, res) => {
     forwardToGarena(req.path, req, res);
 });
-
-module.exports = router;
