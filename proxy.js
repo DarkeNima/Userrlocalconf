@@ -63,7 +63,8 @@ function logAndForward(path, req, res) {
 // router.all('*', (req, res) => { ... });
 
 //  අලුත් ක්‍රමය (Regex පාවිච්චි කරලා ඕනෑම පාරක් අල්ලනවා):
-router.all('(.*)', (req, res) => {
+// 🎯 අලුත්ම Express වල ඕනෑම Path එකක් (Wildcard) අල්ලන්න නිවැරදි ක්‍රමය:
+router.all('/:any*', (req, res) => {
     logAndForward(req.path, req, res);
 });
 
