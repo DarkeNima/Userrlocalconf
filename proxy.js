@@ -43,37 +43,52 @@ const root = protobuf.Root.fromJSON({
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
 // 🌐 General HTTPS Forwarding Function (හැම රික්වෙස්ට් එකක්ම ගරීනා එකට යවන්න)
+
+// 💡 GetLoginData සඳහා Schema එකක් (උදාහරණයක් ලෙස)
+// සැබෑ දත්ත කියවීමට නම් නිවැරදි Schema එක සොයාගත යුතුය.
+const GetLoginDataMsg = root.lookupType("MajorLoginResponse"); // තාවකාලිකව පාවිච්චි කරමු
+
 function forwardToGarena(path, req, res) {
+    const cleanHeaders = { ...req.headers };
+    delete cleanHeaders['accept-encoding'];
+    cleanHeaders['host'] = config.TARGET_HOST;
+
     const options = {
         hostname: config.TARGET_HOST,
         port: 443,
         path: path,
         method: 'POST',
-        headers: { 
-            ...req.headers, 
-            'host': config.TARGET_HOST, 
-            'content-length': req.rawBody ? req.rawBody.length : 0 
-        }
+        headers: cleanHeaders
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        const resChunks = [];
+        let resChunks = [];
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(resChunks);
-            // Original සර්වර් එකෙන් ආපු උත්තරය කෙලින්ම ගේම් එකට යැවීම
-            res.send(buffer);
+
+            // 🔍 මෙතනදී අපි බලමු එන දත්ත මොනවාද කියලා
+            console.log(`\n📦 [Data Captured] Path: ${path} | Size: ${buffer.length} bytes`);
+
+            if (path === '/GetLoginData') {
+                try {
+                    // අපි දත්ත Decode කරලා බලමු (Hex Dump එකක් විදිහට මුලින් බලමු)
+                    console.log(`🔍 [Raw Hex]: ${buffer.toString('hex').substring(0, 100)}...`);
+                    
+                    // මෙතනදී තමයි අපි ඩේටා වෙනස් කරන්නේ
+                    // උදාහරණ: ඩයමන්ඩ්ස් වෙනස් කිරීමේ Logic එක මෙතනට එන්න ඕනේ
+                    
+                } catch (e) {
+                    console.log("❌ Could not decode data yet, still encrypted or unknown schema.");
+                }
+            }
+
+            res.set(proxyRes.headers);
+            res.send(buffer); // වෙනස් කරපු හෝ ඔරිජිනල් දත්ත ගේම් එකට යැවීම
         });
     });
 
-    proxyReq.on('error', (err) => {
-        console.error(`❌ Forwarding Error (${path}):`, err.message);
-        res.status(500).send("Proxy Error");
-    });
-
-    if (req.rawBody) {
-        proxyReq.write(req.rawBody);
-    }
+    proxyReq.write(req.rawBody);
     proxyReq.end();
 }
 
