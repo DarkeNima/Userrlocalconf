@@ -20,25 +20,25 @@ try {
     process.exit(1);
 }
 
-// Raw Body Capture Middleware (අනිවාර්යයි)
+// Raw Body Capture Middleware
 app.use((req, res, next) => {
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => { req.rawBody = Buffer.concat(chunks); next(); });
 });
 
-// 🔗 අපේ අලුත් Routes ටික සම්බන්ධ කිරීම
+// 🎯 Logging Middleware එක උඩට ගත්තා (එතකොට හැම Request එකක්ම print වෙනවා)
+app.use((req, res, next) => { 
+    console.log(`📡 [Incoming] ${req.method} ${req.url}`); 
+    next(); 
+});
+
+// 🔗 Routes සම්බන්ධ කිරීම
 const verRoutes = require('./ver');
 const proxyRoutes = require('./proxy');
 
 app.use('/', verRoutes);
 app.use('/', proxyRoutes);
-
-// Catch-all Logging
-app.use((req, res, next) => { 
-    console.log(`📡 [Incoming] ${req.method} ${req.url}`); 
-    next(); 
-});
 
 // 🔥 TCP Server
 const tcpServer = net.createServer((socket) => {
