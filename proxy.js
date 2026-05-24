@@ -64,8 +64,14 @@ function logAndForward(path, req, res) {
 
 //  අලුත් ක්‍රමය (Regex පාවිච්චි කරලා ඕනෑම පාරක් අල්ලනවා):
 // 🎯 අලුත්ම Express වල ඕනෑම Path එකක් (Wildcard) අල්ලන්න නිවැරදි ක්‍රමය:
-router.all('/:any*', (req, res) => {
+// ❌ පරණ ක්‍රම: router.all('*'), router.all('(.*)'), router.all('/:any*') හැම එකක්ම error දෙනවා.
+
+//  අලුත්ම Version 8 වලට ගැලපෙන එකම ක්‍රමය (කෙලින්ම RegExp Object එකක් දීම):
+router.all(/[\s\S]*/, (req, res) => {
     logAndForward(req.path, req, res);
 });
+
+module.exports = router;
+
 
 module.exports = router;
