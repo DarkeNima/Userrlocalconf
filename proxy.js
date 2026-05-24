@@ -44,26 +44,28 @@ const root = protobuf.Root.fromJSON({
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
 // 2. Forwarding Function
-
 function forwardToGarena(path, req, res) {
-    // ගේම් එකෙන් ආපු ඔක්කොම headers කොපි කරමු
     const proxyHeaders = { ...req.headers };
     
-    // හැබැයි Host එක අනිවාර්යයෙන්ම ගරීනා එකට වෙනස් වෙන්න ඕනේ
+    // Host එක අනිවාර්යයෙන්ම ගරීනා එකට තිබිය යුතුයි
     proxyHeaders['host'] = config.TARGET_HOST;
     
-    // Gzip ප්‍රශ්න නැති කරගන්න මේක අයින් කරමු
+    // මේවා අයින් කරමු (අලුතෙන් හැදෙන්න ඉඩ දෙමු)
     delete proxyHeaders['accept-encoding'];
-    
-    // Content-Length එක අපි අතින් දාන එක නතර කරලා request එකටම හදන්න දෙමු
     delete proxyHeaders['content-length']; 
+
+    // අපේ ගාව body එකක් තියෙනවා නම් ඒකේ දිග headers වලට එකතු කරමු
+    if (req.rawBody) {
+        proxyHeaders['content-length'] = req.rawBody.length;
+    }
 
     const options = {
         hostname: config.TARGET_HOST,
         port: 443,
         path: path,
         method: 'POST',
-        headers: proxyHeaders
+        headers: proxyHeaders,
+        timeout: 10000 // තත්පර 10ක ටයිම් අවුට් එකක්
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
@@ -77,7 +79,7 @@ function forwardToGarena(path, req, res) {
                 console.log(`🔍 [Raw Hex Response]: ${buffer.toString('hex')}`);
             }
 
-            // ගරීනා එකෙන් එවන Status Code එකම ගේම් එකට යවමු (උදා: 200, 403, 503)
+            // ගරීනා එකෙන් එවන ඔක්කොම headers සහ status එක ගේම් එකට පාස් කරනවා
             res.status(proxyRes.statusCode);
             res.set(proxyRes.headers);
             res.send(buffer);
@@ -86,14 +88,16 @@ function forwardToGarena(path, req, res) {
 
     proxyReq.on('error', (err) => {
         console.error(`❌ Forwarding Error (${path}):`, err.message);
-        res.status(500).send("Proxy Error");
+        res.status(502).send("Bad Gateway");
     });
 
-    if (req.rawBody && req.rawBody.length > 0) {
+    // ගේම් එකෙන් ආපු ඔරිජිනල් බොඩි එක කෙලින්ම ගරීනා එකට යවනවා
+    if (req.rawBody) {
         proxyReq.write(req.rawBody);
     }
     proxyReq.end();
 }
+
 
 // 3. [MajorLogin]
 router.post('/MajorLogin', (req, res) => {
