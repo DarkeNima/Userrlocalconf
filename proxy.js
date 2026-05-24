@@ -48,5 +48,10 @@ function forwardToGarena(path, req, res, callback = null) {
     if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
 }
+// මේක proxy.js එකේ අන්තිමටම දාන්න
+router.post('*', (req, res) => {
+    console.log(`📡 [Proxying] ${req.path} -> Garena`);
+    forwardToGarena(req.path, req, res);
+});
 
 module.exports = router;
