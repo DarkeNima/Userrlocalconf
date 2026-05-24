@@ -40,18 +40,20 @@ const root = protobuf.Root.fromJSON({
     }
 });
 
-const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
 // 🌐 General HTTPS Forwarding Function (හැම රික්වෙස්ට් එකක්ම ගරීනා එකට යවන්න)
-
-// 💡 GetLoginData සඳහා Schema එකක් (උදාහරණයක් ලෙස)
-// සැබෑ දත්ත කියවීමට නම් නිවැරදි Schema එක සොයාගත යුතුය.
-const GetLoginDataMsg = root.lookupType("MajorLoginResponse"); // තාවකාලිකව පාවිච්චි කරමු
-
+ 
 function forwardToGarena(path, req, res) {
-    const cleanHeaders = { ...req.headers };
-    delete cleanHeaders['accept-encoding'];
+    const cleanHeaders = {};
+    
+    // අවශ්‍ය Headers විතරක් තෝරා ගනිමු
+    const allowedHeaders = ['content-type', 'user-agent', 'x-unity-version', 'app-id', 'sdk-version'];
+    allowedHeaders.forEach(h => {
+        if (req.headers[h]) cleanHeaders[h] = req.headers[h];
+    });
+
     cleanHeaders['host'] = config.TARGET_HOST;
+    cleanHeaders['connection'] = 'keep-alive';
 
     const options = {
         hostname: config.TARGET_HOST,
@@ -66,31 +68,28 @@ function forwardToGarena(path, req, res) {
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(resChunks);
-
-            // 🔍 මෙතනදී අපි බලමු එන දත්ත මොනවාද කියලා
-            console.log(`\n📦 [Data Captured] Path: ${path} | Size: ${buffer.length} bytes`);
-
-            if (path === '/GetLoginData') {
-                try {
-                    // අපි දත්ත Decode කරලා බලමු (Hex Dump එකක් විදිහට මුලින් බලමු)
-                    console.log(`🔍 [Raw Hex]: ${buffer.toString('hex').substring(0, 100)}...`);
-                    
-                    // මෙතනදී තමයි අපි ඩේටා වෙනස් කරන්නේ
-                    // උදාහරණ: ඩයමන්ඩ්ස් වෙනස් කිරීමේ Logic එක මෙතනට එන්න ඕනේ
-                    
-                } catch (e) {
-                    console.log("❌ Could not decode data yet, still encrypted or unknown schema.");
-                }
-            }
-
+            console.log(`📦 [Data Captured] Path: ${path} | Size: ${buffer.length} bytes`);
+            
+            // ගේම් එකට Response එක යවනවා
+            res.status(proxyRes.statusCode);
             res.set(proxyRes.headers);
-            res.send(buffer); // වෙනස් කරපු හෝ ඔරිජිනල් දත්ත ගේම් එකට යැවීම
+            res.send(buffer);
         });
     });
 
-    proxyReq.write(req.rawBody);
+    proxyReq.on('error', (err) => {
+        console.error(`❌ Forwarding Error (${path}):`, err.message);
+        res.status(500).send("Proxy Error");
+    });
+
+    // ගේම් එකෙන් ආපු ඔරිජිනල් දත්ත (Body) එකම යවනවා
+    if (req.rawBody && req.rawBody.length > 0) {
+        proxyReq.write(req.rawBody);
+    }
     proxyReq.end();
 }
+
+
 
 // 1️⃣ [MajorLogin]
 router.post('/MajorLogin', (req, res) => {
