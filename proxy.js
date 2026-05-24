@@ -42,7 +42,42 @@ const root = protobuf.Root.fromJSON({
 
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
-// [MajorLogin]
+// 🌐 General HTTPS Forwarding Function (හැම රික්වෙස්ට් එකක්ම ගරීනා එකට යවන්න)
+function forwardToGarena(path, req, res) {
+    const options = {
+        hostname: config.TARGET_HOST,
+        port: 443,
+        path: path,
+        method: 'POST',
+        headers: { 
+            ...req.headers, 
+            'host': config.TARGET_HOST, 
+            'content-length': req.rawBody ? req.rawBody.length : 0 
+        }
+    };
+
+    const proxyReq = https.request(options, (proxyRes) => {
+        const resChunks = [];
+        proxyRes.on('data', chunk => resChunks.push(chunk));
+        proxyRes.on('end', () => {
+            const buffer = Buffer.concat(resChunks);
+            // Original සර්වර් එකෙන් ආපු උත්තරය කෙලින්ම ගේම් එකට යැවීම
+            res.send(buffer);
+        });
+    });
+
+    proxyReq.on('error', (err) => {
+        console.error(`❌ Forwarding Error (${path}):`, err.message);
+        res.status(500).send("Proxy Error");
+    });
+
+    if (req.rawBody) {
+        proxyReq.write(req.rawBody);
+    }
+    proxyReq.end();
+}
+
+// 1️⃣ [MajorLogin]
 router.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MajorLogin] Captured!`);
     const options = {
@@ -91,6 +126,24 @@ router.post('/MajorLogin', (req, res) => {
     });
     proxyReq.write(req.rawBody);
     proxyReq.end();
+});
+
+// 2️⃣ [GetLoginData Proxy]
+router.post('/GetLoginData', (req, res) => {
+    console.log(`📡 [Proxying] /GetLoginData -> Garena`);
+    forwardToGarena('/GetLoginData', req, res);
+});
+
+// 3️⃣ [GenerateNickname Proxy]
+router.post('/GenerateNickname', (req, res) => {
+    console.log(`📡 [Proxying] /GenerateNickname -> Garena`);
+    forwardToGarena('/GenerateNickname', req, res);
+});
+
+// 4️⃣ [MajorRegister Proxy]
+router.post('/MajorRegister', (req, res) => {
+    console.log(`📡 [Proxying] /MajorRegister -> Garena`);
+    forwardToGarena('/MajorRegister', req, res);
 });
 
 // Ping & Webhook
