@@ -1,60 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const https = require('https');
-const protobuf = require('protobufjs');
 const config = require('./config');
 
-// 1. Protobuf Schema definition
-const root = protobuf.Root.fromJSON({
-    nested: {
-        MajorLoginResponse: {
-            fields: {
-                field1: { type: "uint64", id: 1 },
-                field2: { type: "string", id: 2 },
-                field3: { type: "string", id: 3 },
-                field4: { type: "string", id: 4 },
-                field5: { type: "string", id: 5 },
-                field8: { type: "string", id: 8 },
-                field9: { type: "uint32", id: 9 },
-                field10: { type: "string", id: 10 },
-                field15: { type: "Field15Msg", id: 15 },
-                field16: { type: "string", id: 16 },
-                field19: { type: "string", id: 19 },
-                field21: { type: "uint32", id: 21 },
-                field22: { type: "bytes", id: 22 },
-                field23: { type: "bytes", id: 23 },
-                field24: { type: "string", id: 24 },
-                field25: { type: "Field25Msg", id: 25 }
-            }
-        },
-        Field15Msg: { fields: { sub1: { type: "uint32", id: 1 } } },
-        Field25Msg: {
-            fields: {
-                sub1: { type: "string", id: 1 },
-                sub2: { type: "uint32", id: 2 },
-                sub5: { type: "uint32", id: 5 },
-                sub6: { type: "uint32", id: 6 },
-                sub7: { type: "uint32", id: 7 }
-            }
-        }
-    }
-});
-
-// ✅ මෙන්න මේකයි කලින් අමතක වුණේ:
-const LoginResponseMsg = root.lookupType("MajorLoginResponse");
-
-// 2. Forwarding Function
+// 🌐 General HTTPS Forwarding Function
 function forwardToGarena(path, req, res) {
     const proxyHeaders = { ...req.headers };
     
-    // Host එක අනිවාර්යයෙන්ම ගරීනා එකට තිබිය යුතුයි
+    // Host එක අනිවාර්යයෙන්ම ගරීනා සර්වර් එකේ එක වෙන්න ඕනේ
     proxyHeaders['host'] = config.TARGET_HOST;
     
-    // මේවා අයින් කරමු (අලුතෙන් හැදෙන්න ඉඩ දෙමු)
+    // Gzip compression අයින් කරමු ලේසියෙන් කියවන්න
     delete proxyHeaders['accept-encoding'];
     delete proxyHeaders['content-length']; 
 
-    // අපේ ගාව body එකක් තියෙනවා නම් ඒකේ දිග headers වලට එකතු කරමු
     if (req.rawBody) {
         proxyHeaders['content-length'] = req.rawBody.length;
     }
@@ -65,7 +24,7 @@ function forwardToGarena(path, req, res) {
         path: path,
         method: 'POST',
         headers: proxyHeaders,
-        timeout: 10000 // තත්පර 10ක ටයිම් අවුට් එකක්
+        timeout: 10000
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
@@ -73,13 +32,15 @@ function forwardToGarena(path, req, res) {
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(resChunks);
+            
+            // ටර්මිනල් එකේ විස්තර බලාගන්න
             console.log(`📦 [Data Captured] Path: ${path} | Status: ${proxyRes.statusCode} | Size: ${buffer.length} bytes`);
             
-            if (path === '/GetLoginData' && buffer.length > 0) {
+            // GetLoginData එකේ Hex ටික විතරක් වෙනම පෙන්වන්න
+            if (path === '/GetLoginData' && buffer.length > 1) {
                 console.log(`🔍 [Raw Hex Response]: ${buffer.toString('hex')}`);
             }
 
-            // ගරීනා එකෙන් එවන ඔක්කොම headers සහ status එක ගේම් එකට පාස් කරනවා
             res.status(proxyRes.statusCode);
             res.set(proxyRes.headers);
             res.send(buffer);
@@ -91,80 +52,37 @@ function forwardToGarena(path, req, res) {
         res.status(502).send("Bad Gateway");
     });
 
-    // ගේම් එකෙන් ආපු ඔරිජිනල් බොඩි එක කෙලින්ම ගරීනා එකට යවනවා
     if (req.rawBody) {
         proxyReq.write(req.rawBody);
     }
     proxyReq.end();
 }
 
-
-// 3. [MajorLogin]
+// 1️⃣ [MajorLogin] - මුකුත් වෙනස් කරන්නේ නැතුව පාස් කරනවා
 router.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Captured!`);
-    const options = {
-        hostname: config.TARGET_HOST,
-        port: 443,
-        path: '/MajorLogin',
-        method: 'POST',
-        headers: { ...req.headers, 'host': config.TARGET_HOST, 'content-length': req.rawBody.length }
-    };
-
-    const proxyReq = https.request(options, (proxyRes) => {
-        const resChunks = [];
-        proxyRes.on('data', chunk => resChunks.push(chunk));
-        proxyRes.on('end', () => {
-            const originalBuffer = Buffer.concat(resChunks);
-            try {
-                const decoded = LoginResponseMsg.decode(originalBuffer);
-                const NEW_SERVER_LIST = `${config.MY_IP}:${config.TCP_PORT}`;
-
-                decoded.field16 = NEW_SERVER_LIST;
-                decoded.field24 = NEW_SERVER_LIST;
-                decoded.field10 = config.MY_URL_HTTPS;
-
-                if (decoded.field22) {
-                    let s = decoded.field22.toString();
-                    s = s.replace(/csoversea\.stronghold\.freefiremobile\.com/g, config.MY_IP);
-                    s = s.replace(/\b34\.\d+\.\d+\.\d+\b/g, config.MY_IP);
-                    decoded.field22 = Buffer.from(s);
-                }
-                
-                if (decoded.field23) {
-                    let s2 = decoded.field23.toString();
-                    s2 = s2.replace(/csoversea\.stronghold\.freefiremobile\.com/g, config.MY_IP);
-                    s2 = s2.replace(/\b34\.\d+\.\d+\.\d+\b/g, config.MY_IP);
-                    decoded.field23 = Buffer.from(s2);
-                }
-
-                res.send(LoginResponseMsg.encode(LoginResponseMsg.create(decoded)).finish());
-                console.log("✅ Injection Successful");
-            } catch (err) {
-                console.error("❌ Decode failed:", err.message);
-                res.send(originalBuffer);
-            }
-        });
-    });
-    proxyReq.write(req.rawBody);
-    proxyReq.end();
+    console.log(`\n🎯 [MajorLogin] Captured! (Forwarding Only)`);
+    forwardToGarena('/MajorLogin', req, res);
 });
 
-// 4. Other Routes
+// 2️⃣ [GetLoginData]
 router.post('/GetLoginData', (req, res) => {
     console.log(`📡 [Proxying] /GetLoginData -> Garena`);
     forwardToGarena('/GetLoginData', req, res);
 });
 
+// 3️⃣ [GenerateNickname]
 router.post('/GenerateNickname', (req, res) => {
     console.log(`📡 [Proxying] /GenerateNickname -> Garena`);
     forwardToGarena('/GenerateNickname', req, res);
 });
 
+// 4️⃣ [MajorRegister]
 router.post('/MajorRegister', (req, res) => {
     console.log(`📡 [Proxying] /MajorRegister -> Garena`);
     forwardToGarena('/MajorRegister', req, res);
 });
 
+// Utility Routes
 router.post('/Ping', (req, res) => { res.status(200).send("OK"); });
 router.post('/webhook', (req, res) => { res.status(200).json({ "status": "ok" }); });
 
