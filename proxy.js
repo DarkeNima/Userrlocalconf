@@ -5,18 +5,23 @@ const config = require('./config');
 
 function forwardToGarena(path, req, res, callback = null) {
     const proxyHeaders = { ...req.headers };
-    proxyHeaders['host'] = config.TARGET_HOST;
+    
+    // වැදගත්: Host එක විදිහට Domain එකම තියෙන්න ඕනේ
+    proxyHeaders['host'] = config.TARGET_HOST; 
+    
     delete proxyHeaders['accept-encoding'];
     delete proxyHeaders['content-length'];
 
     if (req.rawBody) proxyHeaders['content-length'] = req.rawBody.length;
 
     const options = {
-        hostname: config.TARGET_HOST,
+        // 🚀 මෙතනට ගරීනා එකේ සැබෑ IP එක දෙනවා (Loop එක නතර කරන්න)
+        hostname: '203.116.141.134', 
         port: 443,
         path: path,
         method: 'POST',
-        headers: proxyHeaders
+        headers: proxyHeaders,
+        rejectUnauthorized: false // Self-signed SSL ප්‍රශ්න මගහරින්න
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
@@ -25,12 +30,10 @@ function forwardToGarena(path, req, res, callback = null) {
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(chunks);
             
-            // ලොග්ස් බලාගන්න විතරක් මේක පාවිච්චි කරමු
+            // 🎯 මෙතන තමයි අපේ Capture එක වෙන්නේ
             if (path === '/GetLoginData' || path === '/MajorLogin') {
-                console.log(`📦 [Captured] ${path} | Size: ${buffer.length} bytes`);
-                if (buffer.length > 0) {
-                    console.log(`🔍 [Raw Hex]: ${buffer.toString('hex').substring(0, 100)}...`);
-                }
+                console.log(`\n📦 [DATA CAPTURED] Path: ${path} | Status: ${proxyRes.statusCode}`);
+                console.log(`🔍 [HEX]: ${buffer.toString('hex')}\n`);
             }
 
             res.status(proxyRes.statusCode).set(proxyRes.headers).send(buffer);
@@ -38,17 +41,12 @@ function forwardToGarena(path, req, res, callback = null) {
     });
 
     proxyReq.on('error', (e) => {
-        console.error("Proxy Error:", e.message);
+        console.error("❌ Proxy Forward Error:", e.message);
         res.status(502).send("Bad Gateway");
     });
 
     if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
 }
-
-// හැම රික්වෙස්ට් එකක්ම අල්ලන්න (Catch-all)
-router.post('*', (req, res) => {
-    forwardToGarena(req.path, req, res);
-});
 
 module.exports = router;
