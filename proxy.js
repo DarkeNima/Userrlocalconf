@@ -3,10 +3,10 @@ const router = express.Router();
 const https = require('https');
 const config = require('./config');
 
-function forwardToGarena(path, req, res, callback = null) {
+function logAndForward(path, req, res) {
     const proxyHeaders = { ...req.headers };
     
-    // වැදගත්: Host එක විදිහට Domain එකම තියෙන්න ඕනේ
+    // Garena එක අපේ Request එක බාරගන්න Host එක නිවැරදිව තියෙන්න ඕනේ
     proxyHeaders['host'] = config.TARGET_HOST; 
     
     delete proxyHeaders['accept-encoding'];
@@ -15,14 +15,19 @@ function forwardToGarena(path, req, res, callback = null) {
     if (req.rawBody) proxyHeaders['content-length'] = req.rawBody.length;
 
     const options = {
-        // 🚀 මෙතනට ගරීනා එකේ සැබෑ IP එක දෙනවා (Loop එක නතර කරන්න)
-        hostname: '203.116.141.134', 
+        hostname: config.TARGET_HOST, // versions.garenanow.live
         port: 443,
         path: path,
-        method: 'POST',
+        method: req.method,
         headers: proxyHeaders,
-        rejectUnauthorized: false // Self-signed SSL ප්‍රශ්න මගහරින්න
+        rejectUnauthorized: false // SSL Handshake ප්‍රශ්න මගහරින්න
     };
+
+    // 1️⃣ Client (Phone) එකෙන් සර්වර් එකට යන දත්ත ලොග් කිරීම (Request)
+    if (req.rawBody && req.rawBody.length > 0) {
+        console.log(`\n⬆️ [CLIENT -> GARENA] Path: ${path}`);
+        console.log(`🔍 [REQ HEX]: ${req.rawBody.toString('hex')}`);
+    }
 
     const proxyReq = https.request(options, (proxyRes) => {
         let chunks = [];
@@ -30,28 +35,32 @@ function forwardToGarena(path, req, res, callback = null) {
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(chunks);
             
-            // 🎯 මෙතන තමයි අපේ Capture එක වෙන්නේ
-            if (path === '/GetLoginData' || path === '/MajorLogin') {
-                console.log(`\n📦 [DATA CAPTURED] Path: ${path} | Status: ${proxyRes.statusCode}`);
-                console.log(`🔍 [HEX]: ${buffer.toString('hex')}\n`);
+            // 2️⃣ Garena එකෙන් Client (Phone) එකට එවන දත්ත ලොග් කිරීම (Response)
+            console.log(`\n⬇️ [GARENA -> CLIENT] Path: ${path} | Status: ${proxyRes.statusCode}`);
+            if (buffer.length > 0) {
+                console.log(`🔍 [RES HEX]: ${buffer.toString('hex')}`);
             }
 
-            res.status(proxyRes.statusCode).set(proxyRes.headers).send(buffer);
+            // කිසිම වෙනසක් නොකර දත්ත ටික එහෙම්මම Phone එකට යවනවා
+            const responseHeaders = { ...proxyRes.headers };
+            delete responseHeaders['content-length']; 
+
+            res.status(proxyRes.statusCode).set(responseHeaders).send(buffer);
         });
     });
 
     proxyReq.on('error', (e) => {
-        console.error("❌ Proxy Forward Error:", e.message);
+        console.error("❌ Proxy Connection Error:", e.message);
         res.status(502).send("Bad Gateway");
     });
 
-    if (req.rawBody) proxyReq.write(req.rawBody);
+    if (req.rawBody && req.method !== 'GET') proxyReq.write(req.rawBody);
     proxyReq.end();
 }
-// මේක proxy.js එකේ අන්තිමටම දාන්න
-router.post('*', (req, res) => {
-    console.log(`📡 [Proxying] ${req.path} -> Garena`);
-    forwardToGarena(req.path, req, res);
+
+// හැම Request එකක්ම මේකට අහුවෙනවා
+router.all('*', (req, res) => {
+    logAndForward(req.path, req, res);
 });
 
 module.exports = router;
