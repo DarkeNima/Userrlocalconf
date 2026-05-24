@@ -4,7 +4,7 @@ const https = require('https');
 const protobuf = require('protobufjs');
 const config = require('./config');
 
-// Protobuf Schema
+// 1. Protobuf Schema definition
 const root = protobuf.Root.fromJSON({
     nested: {
         MajorLoginResponse: {
@@ -40,14 +40,14 @@ const root = protobuf.Root.fromJSON({
     }
 });
 
+// ✅ මෙන්න මේකයි කලින් අමතක වුණේ:
+const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
-// 🌐 General HTTPS Forwarding Function (හැම රික්වෙස්ට් එකක්ම ගරීනා එකට යවන්න)
- 
+// 2. Forwarding Function
 function forwardToGarena(path, req, res) {
     const cleanHeaders = {};
-    
-    // අවශ්‍ය Headers විතරක් තෝරා ගනිමු
     const allowedHeaders = ['content-type', 'user-agent', 'x-unity-version', 'app-id', 'sdk-version'];
+    
     allowedHeaders.forEach(h => {
         if (req.headers[h]) cleanHeaders[h] = req.headers[h];
     });
@@ -69,8 +69,6 @@ function forwardToGarena(path, req, res) {
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(resChunks);
             console.log(`📦 [Data Captured] Path: ${path} | Size: ${buffer.length} bytes`);
-            
-            // ගේම් එකට Response එක යවනවා
             res.status(proxyRes.statusCode);
             res.set(proxyRes.headers);
             res.send(buffer);
@@ -82,20 +80,20 @@ function forwardToGarena(path, req, res) {
         res.status(500).send("Proxy Error");
     });
 
-    // ගේම් එකෙන් ආපු ඔරිජිනල් දත්ත (Body) එකම යවනවා
     if (req.rawBody && req.rawBody.length > 0) {
         proxyReq.write(req.rawBody);
     }
     proxyReq.end();
 }
 
-
-
-// 1️⃣ [MajorLogin]
+// 3. [MajorLogin]
 router.post('/MajorLogin', (req, res) => {
     console.log(`\n🎯 [MajorLogin] Captured!`);
     const options = {
-        hostname: config.TARGET_HOST, port: 443, path: '/MajorLogin', method: 'POST',
+        hostname: config.TARGET_HOST,
+        port: 443,
+        path: '/MajorLogin',
+        method: 'POST',
         headers: { ...req.headers, 'host': config.TARGET_HOST, 'content-length': req.rawBody.length }
     };
 
@@ -106,10 +104,6 @@ router.post('/MajorLogin', (req, res) => {
             const originalBuffer = Buffer.concat(resChunks);
             try {
                 const decoded = LoginResponseMsg.decode(originalBuffer);
-                
-                console.log("🔍 [MajorLogin] Decoded Full Structure:");
-                console.log(JSON.stringify(decoded, null, 2));
-
                 const NEW_SERVER_LIST = `${config.MY_IP}:${config.TCP_PORT}`;
 
                 decoded.field16 = NEW_SERVER_LIST;
@@ -142,25 +136,22 @@ router.post('/MajorLogin', (req, res) => {
     proxyReq.end();
 });
 
-// 2️⃣ [GetLoginData Proxy]
+// 4. Other Routes
 router.post('/GetLoginData', (req, res) => {
     console.log(`📡 [Proxying] /GetLoginData -> Garena`);
     forwardToGarena('/GetLoginData', req, res);
 });
 
-// 3️⃣ [GenerateNickname Proxy]
 router.post('/GenerateNickname', (req, res) => {
     console.log(`📡 [Proxying] /GenerateNickname -> Garena`);
     forwardToGarena('/GenerateNickname', req, res);
 });
 
-// 4️⃣ [MajorRegister Proxy]
 router.post('/MajorRegister', (req, res) => {
     console.log(`📡 [Proxying] /MajorRegister -> Garena`);
     forwardToGarena('/MajorRegister', req, res);
 });
 
-// Ping & Webhook
 router.post('/Ping', (req, res) => { res.status(200).send("OK"); });
 router.post('/webhook', (req, res) => { res.status(200).json({ "status": "ok" }); });
 
