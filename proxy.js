@@ -6,7 +6,7 @@ const config = require('./config');
 function logAndForward(path, req, res) {
     const proxyHeaders = { ...req.headers };
     
-    // Garena එක අපේ Request එක බාරගන්න Host එක නිවැරදිව තියෙන්න ඕනේ
+    // Garena එකට අපි හරවන නිසා Host එක versions.garenanow.live විය යුතුයි
     proxyHeaders['host'] = config.TARGET_HOST; 
     
     delete proxyHeaders['accept-encoding'];
@@ -14,18 +14,22 @@ function logAndForward(path, req, res) {
 
     if (req.rawBody) proxyHeaders['content-length'] = req.rawBody.length;
 
+    // 🎯 වැදගත්: ගේම් එකෙන් '/MajorLogin' ආවොත් ඒක '/live/MajorLogin' කරන්න ඕනේ.
+    // හැබැයි දැනටමත් '/live/MajorLogin' කියලා ආවොත් ඒක එහෙම්මම ගන්නවා.
+    const cleanPath = path.startsWith('/live') ? path : `/live${path}`;
+
     const options = {
-        hostname: config.TARGET_HOST, // versions.garenanow.live
+        hostname: config.TARGET_HOST, // මෙතනට එන්නේ 'versions.garenanow.live' විතරයි
         port: 443,
-        path: path,
+        path: cleanPath,
         method: req.method,
         headers: proxyHeaders,
-        rejectUnauthorized: false // SSL Handshake ප්‍රශ්න මගහරින්න
+        rejectUnauthorized: false
     };
 
-    // 1️⃣ Client (Phone) එකෙන් සර්වර් එකට යන දත්ත ලොග් කිරීම (Request)
+    // Client (Phone) එකෙන් සර්වර් එකට යන දත්ත ලොග් කිරීම
     if (req.rawBody && req.rawBody.length > 0) {
-        console.log(`\n⬆️ [CLIENT -> GARENA] Path: ${path}`);
+        console.log(`\n⬆️ [CLIENT -> GARENA] Path: ${cleanPath}`);
         console.log(`🔍 [REQ HEX]: ${req.rawBody.toString('hex')}`);
     }
 
@@ -35,13 +39,12 @@ function logAndForward(path, req, res) {
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(chunks);
             
-            // 2️⃣ Garena එකෙන් Client (Phone) එකට එවන දත්ත ලොග් කිරීම (Response)
-            console.log(`\n⬇️ [GARENA -> CLIENT] Path: ${path} | Status: ${proxyRes.statusCode}`);
+            // Garena එකෙන් අපිට එවන දත්ත ලොග් කිරීම
+            console.log(`\n⬇️ [GARENA -> CLIENT] Path: ${cleanPath} | Status: ${proxyRes.statusCode}`);
             if (buffer.length > 0) {
                 console.log(`🔍 [RES HEX]: ${buffer.toString('hex')}`);
             }
 
-            // කිසිම වෙනසක් නොකර දත්ත ටික එහෙම්මම Phone එකට යවනවා
             const responseHeaders = { ...proxyRes.headers };
             delete responseHeaders['content-length']; 
 
@@ -50,7 +53,7 @@ function logAndForward(path, req, res) {
     });
 
     proxyReq.on('error', (e) => {
-        console.error("❌ Proxy Connection Error:", e.message);
+        console.error(`❌ Proxy Connection Error to (${config.TARGET_HOST}${cleanPath}):`, e.message);
         res.status(502).send("Bad Gateway");
     });
 
@@ -58,20 +61,9 @@ function logAndForward(path, req, res) {
     proxyReq.end();
 }
 
-// හැම Request එකක්ම මේකට අහුවෙනවා
-// ❌ කලින් තිබුණ වැරදි ක්‍රමය:
-// router.all('*', (req, res) => { ... });
-
-//  අලුත් ක්‍රමය (Regex පාවිච්චි කරලා ඕනෑම පාරක් අල්ලනවා):
-// 🎯 අලුත්ම Express වල ඕනෑම Path එකක් (Wildcard) අල්ලන්න නිවැරදි ක්‍රමය:
-// ❌ පරණ ක්‍රම: router.all('*'), router.all('(.*)'), router.all('/:any*') හැම එකක්ම error දෙනවා.
-
-//  අලුත්ම Version 8 වලට ගැලපෙන එකම ක්‍රමය (කෙලින්ම RegExp Object එකක් දීම):
+// RegExp එකෙන් හැම Request එකක්ම අල්ලනවා
 router.all(/[\s\S]*/, (req, res) => {
     logAndForward(req.path, req, res);
 });
-
-module.exports = router;
-
 
 module.exports = router;
