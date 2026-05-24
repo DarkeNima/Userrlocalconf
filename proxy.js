@@ -59,8 +59,9 @@ function forwardToGarena(path, req, res) {
 }
 
 // 1️⃣ [MajorLogin] - මුකුත් වෙනස් කරන්නේ නැතුව පාස් කරනවා
+
 router.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Captured! Redirecting traffic...`);
+    console.log(`\n🎯 [MajorLogin] Captured!`);
     
     const options = {
         hostname: config.TARGET_HOST,
@@ -75,34 +76,37 @@ router.post('/MajorLogin', (req, res) => {
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             let buffer = Buffer.concat(resChunks);
-            
-            // 🛠️ MAGIC TRICK: ඩේටා පැකට් එක ඇතුළේ තියෙන ගරීනා Domain එක අපේ IP එකට හරවමු
-            let dataString = buffer.toString('binary');
-            
-            // ගරීනා Domain එක කොහේ තිබුණත් ඒක අපේ IP එකට හරවනවා
-            const searchPattern = /csoversea\.stronghold\.freefiremobile\.com/g;
-            if (dataString.match(searchPattern)) {
-                console.log("🔗 Found Garena Domain! Redirecting to MY_IP...");
-                dataString = dataString.replace(searchPattern, config.MY_IP);
-                buffer = Buffer.from(dataString, 'binary');
-            }
+            try {
+                const decoded = LoginResponseMsg.decode(buffer);
+                
+                // 💡 මෙතනදී අපි ඊළඟ රික්වෙස්ට් එක අපේ සර්වර් එකට ගන්න පාර හදනවා
+                decoded.field10 = config.MY_URL_HTTPS; 
 
-            res.status(proxyRes.statusCode);
-            res.set(proxyRes.headers);
-            res.send(buffer);
-            console.log("✅ Redirection Injection Done.");
+                // වෙන කිසිම දෙයක් වෙනස් කරන්නේ නැහැ (Signature එක බේරගන්න)
+                const encoded = LoginResponseMsg.encode(decoded).finish();
+                res.send(encoded);
+                console.log("✅ field10 Redirected to Proxy.");
+            } catch (e) {
+                res.send(buffer);
+            }
         });
     });
-
     proxyReq.write(req.rawBody);
     proxyReq.end();
 });
-;
 
 // 2️⃣ [GetLoginData]
 router.post('/GetLoginData', (req, res) => {
-    console.log(`📡 [Proxying] /GetLoginData -> Garena`);
-    forwardToGarena('/GetLoginData', req, res);
+    console.log(`📡 [Proxying] /GetLoginData -> Fetching from Garena...`);
+    
+    // forwardToGarena පාවිච්චි කරලා ගරීනා එකෙන් දත්ත ගමු
+    forwardToGarena('/GetLoginData', req, res, (garenaBuffer) => {
+        // 💎 මෙතනදී තමයි අපි ඩයමන්ඩ්ස් වෙනස් කරන්නේ!
+        console.log("🔍 Received data from Garena, now modifying...");
+        
+        // දැනට මුකුත් වෙනස් නොකර යවමු ලොග් වෙනවද බලන්න
+        return garenaBuffer; 
+    });
 });
 
 // 3️⃣ [GenerateNickname]
