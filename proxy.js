@@ -59,7 +59,11 @@ function logAndForward(path, req, res) {
 }
 
 // හැම Request එකක්ම මේකට අහුවෙනවා
-router.all('*', (req, res) => {
+// ❌ කලින් තිබුණ වැරදි ක්‍රමය:
+// router.all('*', (req, res) => { ... });
+
+//  අලුත් ක්‍රමය (Regex පාවිච්චි කරලා ඕනෑම පාරක් අල්ලනවා):
+router.all('(.*)', (req, res) => {
     logAndForward(req.path, req, res);
 });
 
