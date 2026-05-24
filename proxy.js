@@ -1,128 +1,99 @@
 const express = require('express');
 const router = express.Router();
 const https = require('https');
+const protobuf = require('protobufjs');
 const config = require('./config');
 
-// 🌐 General HTTPS Forwarding Function
-function forwardToGarena(path, req, res) {
-    const proxyHeaders = { ...req.headers };
-    
-    // Host එක අනිවාර්යයෙන්ම ගරීනා සර්වර් එකේ එක වෙන්න ඕනේ
-    proxyHeaders['host'] = config.TARGET_HOST;
-    
-    // Gzip compression අයින් කරමු ලේසියෙන් කියවන්න
-    delete proxyHeaders['accept-encoding'];
-    delete proxyHeaders['content-length']; 
-
-    if (req.rawBody) {
-        proxyHeaders['content-length'] = req.rawBody.length;
+// 1. Protobuf Schema (LoginResponse එක විතරක් Decode කරන්න)
+const root = protobuf.Root.fromJSON({
+    nested: {
+        MajorLoginResponse: {
+            fields: {
+                field1: { type: "uint64", id: 1 },
+                field10: { type: "string", id: 10 } // අපිට ඕන URL එක තියෙන්නේ මෙතන
+                // අනෙක් fields අවශ්‍ය නැහැ structure එකේ order එක හරිනම්
+            }
+        }
     }
+});
+
+// 🌐 පිරිසිදු Forwarding Function එක
+function forwardToGarena(path, req, res, callback = null) {
+    const proxyHeaders = { ...req.headers };
+    proxyHeaders['host'] = config.TARGET_HOST;
+    delete proxyHeaders['accept-encoding'];
+    delete proxyHeaders['content-length'];
+
+    if (req.rawBody) proxyHeaders['content-length'] = req.rawBody.length;
 
     const options = {
         hostname: config.TARGET_HOST,
         port: 443,
         path: path,
         method: 'POST',
-        headers: proxyHeaders,
-        timeout: 10000
+        headers: proxyHeaders
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-        let resChunks = [];
-        proxyRes.on('data', chunk => resChunks.push(chunk));
+        let chunks = [];
+        proxyRes.on('data', chunk => chunks.push(chunk));
         proxyRes.on('end', () => {
-            const buffer = Buffer.concat(resChunks);
+            const buffer = Buffer.concat(chunks);
+            console.log(`📦 [Captured] ${path} | Size: ${buffer.length} bytes`);
             
-            // ටර්මිනල් එකේ විස්තර බලාගන්න
-            console.log(`📦 [Data Captured] Path: ${path} | Status: ${proxyRes.statusCode} | Size: ${buffer.length} bytes`);
-            
-            // GetLoginData එකේ Hex ටික විතරක් වෙනම පෙන්වන්න
-            if (path === '/GetLoginData' && buffer.length > 1) {
-                console.log(`🔍 [Raw Hex Response]: ${buffer.toString('hex')}`);
+            if (callback) {
+                // දත්ත වෙනස් කරන්න ඕන නම් callback එකෙන් කරමු
+                const modifiedBuffer = callback(buffer);
+                res.status(proxyRes.statusCode).set(proxyRes.headers).send(modifiedBuffer);
+            } else {
+                res.status(proxyRes.statusCode).set(proxyRes.headers).send(buffer);
             }
-
-            res.status(proxyRes.statusCode);
-            res.set(proxyRes.headers);
-            res.send(buffer);
         });
     });
 
-    proxyReq.on('error', (err) => {
-        console.error(`❌ Forwarding Error (${path}):`, err.message);
-        res.status(502).send("Bad Gateway");
-    });
-
-    if (req.rawBody) {
-        proxyReq.write(req.rawBody);
-    }
+    if (req.rawBody) proxyReq.write(req.rawBody);
     proxyReq.end();
 }
 
-// 1️⃣ [MajorLogin] - මුකුත් වෙනස් කරන්නේ නැතුව පාස් කරනවා
-
+// 🎯 1. MajorLogin - මෙතනදී තමයි Traffic එක හරවගන්නේ
 router.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Captured!`);
+    console.log(`\n🎯 [MajorLogin] Captured! Redirecting Next Requests...`);
     
-    const options = {
-        hostname: config.TARGET_HOST,
-        port: 443,
-        path: '/MajorLogin',
-        method: 'POST',
-        headers: { ...req.headers, 'host': config.TARGET_HOST }
-    };
-
-    const proxyReq = https.request(options, (proxyRes) => {
-        let resChunks = [];
-        proxyRes.on('data', chunk => resChunks.push(chunk));
-        proxyRes.on('end', () => {
-            let buffer = Buffer.concat(resChunks);
-            try {
-                const decoded = LoginResponseMsg.decode(buffer);
-                
-                // 💡 මෙතනදී අපි ඊළඟ රික්වෙස්ට් එක අපේ සර්වර් එකට ගන්න පාර හදනවා
-                decoded.field10 = config.MY_URL_HTTPS; 
-
-                // වෙන කිසිම දෙයක් වෙනස් කරන්නේ නැහැ (Signature එක බේරගන්න)
-                const encoded = LoginResponseMsg.encode(decoded).finish();
-                res.send(encoded);
-                console.log("✅ field10 Redirected to Proxy.");
-            } catch (e) {
-                res.send(buffer);
+    forwardToGarena('/MajorLogin', req, res, (originalBuffer) => {
+        try {
+            // අපි සම්පූර්ණ දත්ත Decode කරන්නේ නැතුව String එකක් විදිහට අරන්
+            // field10 එකේ තියෙන URL එක විතරක් අපේ URL එකට Replace කරමු.
+            // මේක ගොඩක් Safe ක්‍රමයක්.
+            let dataStr = originalBuffer.toString('binary');
+            const garenaUrl = "https://clientbp.ggpolarbear.com";
+            
+            if (dataStr.includes(garenaUrl)) {
+                console.log("🔗 Found Garena URL! Redirecting to Proxy...");
+                dataStr = dataStr.replace(garenaUrl, config.MY_URL_HTTPS);
+                return Buffer.from(dataStr, 'binary');
             }
-        });
+        } catch (err) {
+            console.error("❌ Redirection Failed:", err.message);
+        }
+        return originalBuffer;
     });
-    proxyReq.write(req.rawBody);
-    proxyReq.end();
 });
 
-// 2️⃣ [GetLoginData]
+// 🎯 2. GetLoginData - දැන් මේක අපේ සර්වර් එකට අනිවාර්යයෙන්ම එන්න ඕනේ
 router.post('/GetLoginData', (req, res) => {
-    console.log(`📡 [Proxying] /GetLoginData -> Fetching from Garena...`);
+    console.log(`📡 [Proxying] /GetLoginData -> Intercepting Diamonds/Gold...`);
     
-    // forwardToGarena පාවිච්චි කරලා ගරීනා එකෙන් දත්ත ගමු
-    forwardToGarena('/GetLoginData', req, res, (garenaBuffer) => {
-        // 💎 මෙතනදී තමයි අපි ඩයමන්ඩ්ස් වෙනස් කරන්නේ!
-        console.log("🔍 Received data from Garena, now modifying...");
-        
-        // දැනට මුකුත් වෙනස් නොකර යවමු ලොග් වෙනවද බලන්න
-        return garenaBuffer; 
+    forwardToGarena('/GetLoginData', req, res, (buffer) => {
+        // 💎 මෙන්න මෙතනදී තමයි දත්ත වෙනස් කරන්න පුළුවන් වෙන්නේ
+        // දැනට අපි ලොග් එකේ Hex ටික බලමු
+        console.log(`🔍 [Raw Hex Response]: ${buffer.toString('hex')}`);
+        return buffer;
     });
 });
 
-// 3️⃣ [GenerateNickname]
-router.post('/GenerateNickname', (req, res) => {
-    console.log(`📡 [Proxying] /GenerateNickname -> Garena`);
-    forwardToGarena('/GenerateNickname', req, res);
+// අනෙක් හැම එකක්ම සාමාන්‍ය විදිහට Forward කරමු
+router.post('*', (req, res) => {
+    forwardToGarena(req.path, req, res);
 });
-
-// 4️⃣ [MajorRegister]
-router.post('/MajorRegister', (req, res) => {
-    console.log(`📡 [Proxying] /MajorRegister -> Garena`);
-    forwardToGarena('/MajorRegister', req, res);
-});
-
-// Utility Routes
-router.post('/Ping', (req, res) => { res.status(200).send("OK"); });
-router.post('/webhook', (req, res) => { res.status(200).json({ "status": "ok" }); });
 
 module.exports = router;
