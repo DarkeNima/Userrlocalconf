@@ -60,9 +60,44 @@ function forwardToGarena(path, req, res) {
 
 // 1️⃣ [MajorLogin] - මුකුත් වෙනස් කරන්නේ නැතුව පාස් කරනවා
 router.post('/MajorLogin', (req, res) => {
-    console.log(`\n🎯 [MajorLogin] Captured! (Forwarding Only)`);
-    forwardToGarena('/MajorLogin', req, res);
+    console.log(`\n🎯 [MajorLogin] Captured! Redirecting traffic...`);
+    
+    const options = {
+        hostname: config.TARGET_HOST,
+        port: 443,
+        path: '/MajorLogin',
+        method: 'POST',
+        headers: { ...req.headers, 'host': config.TARGET_HOST }
+    };
+
+    const proxyReq = https.request(options, (proxyRes) => {
+        let resChunks = [];
+        proxyRes.on('data', chunk => resChunks.push(chunk));
+        proxyRes.on('end', () => {
+            let buffer = Buffer.concat(resChunks);
+            
+            // 🛠️ MAGIC TRICK: ඩේටා පැකට් එක ඇතුළේ තියෙන ගරීනා Domain එක අපේ IP එකට හරවමු
+            let dataString = buffer.toString('binary');
+            
+            // ගරීනා Domain එක කොහේ තිබුණත් ඒක අපේ IP එකට හරවනවා
+            const searchPattern = /csoversea\.stronghold\.freefiremobile\.com/g;
+            if (dataString.match(searchPattern)) {
+                console.log("🔗 Found Garena Domain! Redirecting to MY_IP...");
+                dataString = dataString.replace(searchPattern, config.MY_IP);
+                buffer = Buffer.from(dataString, 'binary');
+            }
+
+            res.status(proxyRes.statusCode);
+            res.set(proxyRes.headers);
+            res.send(buffer);
+            console.log("✅ Redirection Injection Done.");
+        });
+    });
+
+    proxyReq.write(req.rawBody);
+    proxyReq.end();
 });
+;
 
 // 2️⃣ [GetLoginData]
 router.post('/GetLoginData', (req, res) => {
