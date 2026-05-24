@@ -44,23 +44,26 @@ const root = protobuf.Root.fromJSON({
 const LoginResponseMsg = root.lookupType("MajorLoginResponse");
 
 // 2. Forwarding Function
-function forwardToGarena(path, req, res) {
-    const cleanHeaders = {};
-    const allowedHeaders = ['content-type', 'user-agent', 'x-unity-version', 'app-id', 'sdk-version'];
-    
-    allowedHeaders.forEach(h => {
-        if (req.headers[h]) cleanHeaders[h] = req.headers[h];
-    });
 
-    cleanHeaders['host'] = config.TARGET_HOST;
-    cleanHeaders['connection'] = 'keep-alive';
+function forwardToGarena(path, req, res) {
+    // ගේම් එකෙන් ආපු ඔක්කොම headers කොපි කරමු
+    const proxyHeaders = { ...req.headers };
+    
+    // හැබැයි Host එක අනිවාර්යයෙන්ම ගරීනා එකට වෙනස් වෙන්න ඕනේ
+    proxyHeaders['host'] = config.TARGET_HOST;
+    
+    // Gzip ප්‍රශ්න නැති කරගන්න මේක අයින් කරමු
+    delete proxyHeaders['accept-encoding'];
+    
+    // Content-Length එක අපි අතින් දාන එක නතර කරලා request එකටම හදන්න දෙමු
+    delete proxyHeaders['content-length']; 
 
     const options = {
         hostname: config.TARGET_HOST,
         port: 443,
         path: path,
         method: 'POST',
-        headers: cleanHeaders
+        headers: proxyHeaders
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
@@ -68,7 +71,13 @@ function forwardToGarena(path, req, res) {
         proxyRes.on('data', chunk => resChunks.push(chunk));
         proxyRes.on('end', () => {
             const buffer = Buffer.concat(resChunks);
-            console.log(`📦 [Data Captured] Path: ${path} | Size: ${buffer.length} bytes`);
+            console.log(`📦 [Data Captured] Path: ${path} | Status: ${proxyRes.statusCode} | Size: ${buffer.length} bytes`);
+            
+            if (path === '/GetLoginData' && buffer.length > 0) {
+                console.log(`🔍 [Raw Hex Response]: ${buffer.toString('hex')}`);
+            }
+
+            // ගරීනා එකෙන් එවන Status Code එකම ගේම් එකට යවමු (උදා: 200, 403, 503)
             res.status(proxyRes.statusCode);
             res.set(proxyRes.headers);
             res.send(buffer);
